@@ -1,0 +1,28 @@
+# Blueprint do Render para o Programa 5S — Usina Serra Grande.
+# Sobe o serviço web (Node/Express, que também serve o frontend já
+# compilado). O banco NÃO é criado aqui — usamos um Postgres externo no
+# Neon (neon.tech), que tem plano gratuito sem prazo de expiração.
+#
+# Como usar:
+#   1. Crie o banco no Neon primeiro e copie a connection string
+#      (veja o README, seção "Banco de dados (Neon)").
+#   2. Suba este repositório no GitHub.
+#   3. No dashboard do Render: New > Blueprint > selecione o repositório.
+#   4. Quando for pedido o valor de DATABASE_URL, cole a connection
+#      string do Neon.
+#   5. Clique em "Deploy Blueprint".
+#
+# O plano do serviço web está como "free" para testar sem custo — veja no
+# README a observação sobre o serviço "dormir" após 15 min sem acesso.
+
+services:
+  - type: web
+    name: programa-5s
+    runtime: node
+    plan: free
+    buildCommand: "npm install --prefix frontend && npm run build --prefix frontend && npm install --prefix backend"
+    startCommand: "npm start --prefix backend"
+    healthCheckPath: /api/health
+    envVars:
+      - key: DATABASE_URL
+        sync: false
