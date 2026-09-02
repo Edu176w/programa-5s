@@ -49,10 +49,16 @@ app.put("/api/storage/:key", async (req, res) => {
     if (value === undefined) {
       return res.status(400).json({ error: "missing_value" });
     }
+    // IMPORTANTE: convertemos o valor para uma string JSON (JSON.stringify)
+    // e forçamos o cast ::jsonb na query. Sem isso, quando "value" é um
+    // array (ex.: lista do Comitê, Áreas, Cronograma), a lib "pg" o
+    // converte para o formato de array nativo do Postgres em vez de JSON,
+    // o que quebra a coluna JSONB e gera erro 500 — fazendo a gravação
+    // falhar silenciosamente e as alterações "voltarem" após recarregar.
     await pool.query(
-      `INSERT INTO storage (key, value, updated_at) VALUES ($1, $2, now())
+      `INSERT INTO storage (key, value, updated_at) VALUES ($1, $2::jsonb, now())
        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
-      [req.params.key, value]
+      [req.params.key, JSON.stringify(value)]
     );
     res.json({ key: req.params.key, value });
   } catch (e) {
