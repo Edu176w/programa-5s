@@ -4,22 +4,37 @@ import cors from "cors";
 import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
-import { pool, initDb } from "./db.js";
+import { pool, initDb, generateInviteCode } from "./db.js";
+import { hashPassword, verifyPassword, signToken, requireAuth } from "./auth.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 
 // Limite generoso: cada "coleção" é um blob JSON único (áreas, plano
 // mestre, etc.) que pode incluir fotos em base64 anexadas aos itens do
-// plano de ação. 20mb cobre uma quantidade razoável de fotos comprimidas.
+// plano de ação, e agora também o logo da empresa em base64. 20mb cobre
+// uma quantidade razoável de fotos comprimidas.
 app.use(express.json({ limit: "20mb" }));
 app.use(cors());
 
+function slugify(name) {
+  return String(name)
+    .normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase().trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "") || "empresa";
+}
+
+async function companyPublicView(companyId) {
+  const r = await pool.query(
+    `SELECT id, slug, name, logo_url, primary_color, invite_code FROM companies WHERE id = $1`,
+    [companyId]
+  );
+  return r.rows[0] || null;
+}
+
 // ---------------------------------------------------------------
-// API — mesma forma da interface window.storage que o app usava
-// dentro do Claude: GET devolve {key, value} ou 404; PUT grava e
-// devolve {key, value}. Sempre "compartilhado" (não existe conceito
-// de usuário/login nesta versão autônoma).
+// Autenticação e empresas
 // ---------------------------------------------------------------
 app.get("/api/health", async (req, res) => {
   try {
@@ -30,9 +45,145 @@ app.get("/api/health", async (req, res) => {
   }
 });
 
-app.get("/api/storage/:key", async (req, res) => {
+// Cria uma nova empresa (cliente) + o primeiro usuário, que vira admin dela.
+app.post("/api/auth/register-company", async (req, res) => {
   try {
-    const result = await pool.query("SELECT value FROM storage WHERE key = $1", [req.params.key]);
+    const { companyName, name, email, password } = req.body || {};
+    if (!companyName || !name || !email || !password) {
+      return res.status(400).json({ error: "missing_fields" });
+    }
+    if (String(password).length < 6) {
+      return res.status(400).json({ error: "weak_password" });
+    }
+    const existingUser = await pool.query(`SELECT id FROM users WHERE email = $1`, [String(email).toLowerCase()]);
+    if (existingUser.rows.length > 0) {
+      return res.status(409).json({ error: "email_in_use" });
+    }
+
+    let slug = slugify(companyName);
+    const slugTaken = await pool.query(`SELECT id FROM companies WHERE slug = $1`, [slug]);
+    if (slugTaken.rows.length > 0) slug = `${slug}-${Math.random().toString(36).slice(2, 6)}`;
+
+    const company = await pool.query(
+      `INSERT INTO companies (slug, name, invite_code) VALUES ($1, $2, $3) RETURNING id`,
+      [slug, companyName, generateInviteCode()]
+    );
+    const companyId = company.rows[0].id;
+
+    const passwordHash = await hashPassword(password);
+    const user = await pool.query(
+      `INSERT INTO users (company_id, email, password_hash, name, role) VALUES ($1,$2,$3,$4,'admin') RETURNING id, company_id, role`,
+      [companyId, String(email).toLowerCase(), passwordHash, name]
+    );
+
+    const token = signToken(user.rows[0]);
+    res.json({ token, company: await companyPublicView(companyId) });
+  } catch (e) {
+    console.error("POST /api/auth/register-company failed:", e);
+    res.status(500).json({ error: "server_error" });
+  }
+});
+
+// Entra numa empresa já existente usando o código de convite dela.
+app.post("/api/auth/join", async (req, res) => {
+  try {
+    const { inviteCode, name, email, password } = req.body || {};
+    if (!inviteCode || !name || !email || !password) {
+      return res.status(400).json({ error: "missing_fields" });
+    }
+    if (String(password).length < 6) {
+      return res.status(400).json({ error: "weak_password" });
+    }
+    const companyRes = await pool.query(`SELECT id FROM companies WHERE invite_code = $1`, [String(inviteCode).toUpperCase()]);
+    if (companyRes.rows.length === 0) {
+      return res.status(404).json({ error: "invalid_invite_code" });
+    }
+    const companyId = companyRes.rows[0].id;
+
+    const existingUser = await pool.query(`SELECT id FROM users WHERE email = $1`, [String(email).toLowerCase()]);
+    if (existingUser.rows.length > 0) {
+      return res.status(409).json({ error: "email_in_use" });
+    }
+
+    const passwordHash = await hashPassword(password);
+    const user = await pool.query(
+      `INSERT INTO users (company_id, email, password_hash, name, role) VALUES ($1,$2,$3,$4,'member') RETURNING id, company_id, role`,
+      [companyId, String(email).toLowerCase(), passwordHash, name]
+    );
+
+    const token = signToken(user.rows[0]);
+    res.json({ token, company: await companyPublicView(companyId) });
+  } catch (e) {
+    console.error("POST /api/auth/join failed:", e);
+    res.status(500).json({ error: "server_error" });
+  }
+});
+
+app.post("/api/auth/login", async (req, res) => {
+  try {
+    const { email, password } = req.body || {};
+    if (!email || !password) return res.status(400).json({ error: "missing_fields" });
+
+    const result = await pool.query(`SELECT * FROM users WHERE email = $1`, [String(email).toLowerCase()]);
+    const user = result.rows[0];
+    if (!user) return res.status(401).json({ error: "invalid_credentials" });
+
+    const ok = await verifyPassword(password, user.password_hash);
+    if (!ok) return res.status(401).json({ error: "invalid_credentials" });
+
+    const token = signToken(user);
+    res.json({ token, company: await companyPublicView(user.company_id) });
+  } catch (e) {
+    console.error("POST /api/auth/login failed:", e);
+    res.status(500).json({ error: "server_error" });
+  }
+});
+
+app.get("/api/auth/me", requireAuth, async (req, res) => {
+  try {
+    const userRes = await pool.query(`SELECT id, name, email, role FROM users WHERE id = $1`, [req.auth.userId]);
+    const user = userRes.rows[0];
+    if (!user) return res.status(404).json({ error: "not_found" });
+    const company = await companyPublicView(req.auth.companyId);
+    res.json({ user, company });
+  } catch (e) {
+    console.error("GET /api/auth/me failed:", e);
+    res.status(500).json({ error: "server_error" });
+  }
+});
+
+// Atualiza a identidade visual da empresa (nome, logo, cor). Só admin.
+app.put("/api/company", requireAuth, async (req, res) => {
+  try {
+    if (req.auth.role !== "admin") return res.status(403).json({ error: "forbidden" });
+    const { name, logoUrl, primaryColor } = req.body || {};
+    const result = await pool.query(
+      `UPDATE companies SET
+         name = COALESCE($2, name),
+         logo_url = COALESCE($3, logo_url),
+         primary_color = COALESCE($4, primary_color)
+       WHERE id = $1
+       RETURNING id`,
+      [req.auth.companyId, name ?? null, logoUrl ?? null, primaryColor ?? null]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: "not_found" });
+    res.json({ company: await companyPublicView(req.auth.companyId) });
+  } catch (e) {
+    console.error("PUT /api/company failed:", e);
+    res.status(500).json({ error: "server_error" });
+  }
+});
+
+// ---------------------------------------------------------------
+// Armazenamento de dados — sempre isolado por empresa (req.auth.companyId).
+// GET devolve {key, value} ou 404; PUT grava e devolve {key, value}.
+// ---------------------------------------------------------------
+app.get("/api/storage/:key", requireAuth, async (req, res) => {
+  try {
+    const result = await pool.query(
+      "SELECT value FROM storage WHERE company_id = $1 AND key = $2",
+      [req.auth.companyId, req.params.key]
+    );
     if (result.rows.length === 0) {
       return res.status(404).json({ error: "not_found", key: req.params.key });
     }
@@ -43,22 +194,20 @@ app.get("/api/storage/:key", async (req, res) => {
   }
 });
 
-app.put("/api/storage/:key", async (req, res) => {
+app.put("/api/storage/:key", requireAuth, async (req, res) => {
   try {
     const value = req.body ? req.body.value : undefined;
     if (value === undefined) {
       return res.status(400).json({ error: "missing_value" });
     }
-    // IMPORTANTE: convertemos o valor para uma string JSON (JSON.stringify)
-    // e forçamos o cast ::jsonb na query. Sem isso, quando "value" é um
-    // array (ex.: lista do Comitê, Áreas, Cronograma), a lib "pg" o
+    // O valor é serializado explicitamente (JSON.stringify) e a query usa
+    // cast ::jsonb: sem isso, quando "value" é um array, a lib "pg" o
     // converte para o formato de array nativo do Postgres em vez de JSON,
-    // o que quebra a coluna JSONB e gera erro 500 — fazendo a gravação
-    // falhar silenciosamente e as alterações "voltarem" após recarregar.
+    // o que quebra a coluna JSONB.
     await pool.query(
-      `INSERT INTO storage (key, value, updated_at) VALUES ($1, $2::jsonb, now())
-       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
-      [req.params.key, JSON.stringify(value)]
+      `INSERT INTO storage (company_id, key, value, updated_at) VALUES ($1, $2, $3::jsonb, now())
+       ON CONFLICT (company_id, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+      [req.auth.companyId, req.params.key, JSON.stringify(value)]
     );
     res.json({ key: req.params.key, value });
   } catch (e) {
@@ -67,9 +216,12 @@ app.put("/api/storage/:key", async (req, res) => {
   }
 });
 
-app.delete("/api/storage/:key", async (req, res) => {
+app.delete("/api/storage/:key", requireAuth, async (req, res) => {
   try {
-    await pool.query("DELETE FROM storage WHERE key = $1", [req.params.key]);
+    await pool.query(
+      "DELETE FROM storage WHERE company_id = $1 AND key = $2",
+      [req.auth.companyId, req.params.key]
+    );
     res.json({ key: req.params.key, deleted: true });
   } catch (e) {
     console.error("DELETE /api/storage/:key failed:", e);

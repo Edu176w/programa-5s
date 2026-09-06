@@ -5,7 +5,8 @@ import {
   Trash2, Pencil, Check, CheckCircle2, AlertTriangle, Clock, TrendingUp, ArrowLeft,
   Filter, Save, RotateCcw, Loader2, WifiOff, Wrench, Briefcase, Truck, ClipboardCheck,
   BarChart3, ListChecks, Building2, ImagePlus, ImageOff, CalendarDays, UserRound,
-  ShieldCheck, Menu, Cloud, CircleAlert, FolderOpen, ChevronUp, MapPin, FileDown, FileUp
+  ShieldCheck, Menu, Cloud, CircleAlert, FolderOpen, ChevronUp, MapPin, FileDown, FileUp,
+  LogOut, KeyRound, Palette
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip,
@@ -92,6 +93,40 @@ const STYLES = `
 .g5-historico-badge{
   font-family:var(--font-mono); font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em;
   color:#fff; background:var(--steel-soft-2); padding:5px 10px; border-radius:20px; flex:none; white-space:nowrap;
+}
+.g5-brand-logo{ width:38px; height:38px; border-radius:10px; object-fit:contain; background:#fff; flex:none; padding:3px; }
+.g5-user-chip{ display:flex; align-items:center; gap:6px; background:var(--panel-3); border:1px solid var(--steel); border-radius:20px; padding:4px 6px 4px 12px; flex:none; }
+.g5-user-name{ font-size:12px; font-weight:600; color:#fff; max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.g5-user-logout{ background:transparent; border:none; color:var(--steel-soft); cursor:pointer; padding:5px; border-radius:50%; display:flex; }
+.g5-user-logout:hover{ background:var(--steel); color:#fff; }
+
+/* --- Tela de login --- */
+.g5-login-shell{
+  min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px;
+  background:radial-gradient(circle at 20% 20%, var(--steel-soft-2), var(--ink) 60%);
+}
+.g5-login-card{ width:100%; max-width:420px; background:var(--panel-2); border:1px solid var(--steel); border-radius:16px; padding:28px 26px; box-shadow:var(--shadow-2); }
+.g5-login-brand{ display:flex; align-items:center; gap:12px; margin-bottom:22px; }
+.g5-login-title{ font-size:19px; font-weight:800; color:#fff; letter-spacing:0.01em; }
+.g5-login-sub{ font-size:12.5px; color:var(--steel-soft); margin-top:2px; }
+.g5-login-tabs{ display:flex; gap:4px; background:var(--panel-3); border:1px solid var(--steel); border-radius:10px; padding:4px; margin-bottom:20px; }
+.g5-login-tab{ flex:1; font-size:11.5px; font-weight:700; text-align:center; color:var(--steel-soft); background:transparent; border:none; padding:8px 4px; border-radius:7px; cursor:pointer; }
+.g5-login-tab.active{ background:var(--bagaco); color:var(--ink); }
+.g5-login-form{ display:flex; flex-direction:column; gap:14px; }
+.g5-login-card .g5-label{ color:var(--steel-soft); }
+.g5-login-error{ font-size:12.5px; color:#ffb4b4; background:rgba(255,80,80,0.12); border:1px solid rgba(255,80,80,0.35); border-radius:8px; padding:8px 10px; }
+.g5-login-submit{ width:100%; justify-content:center; padding:11px; font-size:14px; }
+@keyframes g5-spin{ from{ transform:rotate(0deg); } to{ transform:rotate(360deg); } }
+.g5-spin{ animation:g5-spin 0.9s linear infinite; }
+.g5-logo-preview{
+  width:56px; height:56px; border-radius:12px; border:1.5px solid var(--line); background:var(--paper-3);
+  display:flex; align-items:center; justify-content:center; overflow:hidden; flex:none; color:var(--steel-soft-2);
+}
+.g5-logo-preview img{ width:100%; height:100%; object-fit:contain; }
+.g5-color-input{ width:40px; height:38px; border:1.5px solid var(--line); border-radius:var(--radius-s); padding:2px; background:none; cursor:pointer; flex:none; }
+.g5-invite-code{
+  font-family:var(--font-mono); font-size:16px; font-weight:700; letter-spacing:0.08em; background:var(--paper-2);
+  border:1.5px dashed var(--line); border-radius:var(--radius-s); padding:8px 14px; color:var(--ink-on-paper);
 }
 
 .g5-tabbar{ background:var(--panel); border-bottom:1px solid var(--steel); overflow-x:auto; }
@@ -497,6 +532,37 @@ function classNames(){
 }
 
 /* ================================================================
+   AUTENTICAÇÃO — token guardado no localStorage do navegador (não é
+   um Artifact do Claude, é o site publicado de verdade, então
+   localStorage funciona normalmente aqui). Todo fetch de dados passa
+   por apiFetch, que adiciona o header Authorization e desloga
+   automaticamente se o token expirar/for inválido (401).
+   ================================================================ */
+const AUTH_TOKEN_STORAGE_KEY = "g5s_token";
+let AUTH_TOKEN = typeof window !== "undefined" ? window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY) : null;
+const AUTH_LISTENERS = new Set();
+
+function getAuthToken(){ return AUTH_TOKEN; }
+
+function setAuthToken(token){
+  AUTH_TOKEN = token || null;
+  if (typeof window !== "undefined"){
+    if (token) window.localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token);
+    else window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+  }
+  AUTH_LISTENERS.forEach(fn => fn(AUTH_TOKEN));
+}
+
+async function apiFetch(url, options){
+  options = options || {};
+  const headers = Object.assign({}, options.headers || {});
+  if (AUTH_TOKEN) headers.Authorization = "Bearer " + AUTH_TOKEN;
+  const res = await fetch(url, Object.assign({}, options, { headers }));
+  if (res.status === 401) setAuthToken(null);
+  return res;
+}
+
+/* ================================================================
    HOOK DE ARMAZENAMENTO — coleção compartilhada, agora falando com
    nossa própria API (Express + Postgres) em /api/storage/:key em vez
    do window.storage do Claude. Mesmo formato de retorno de antes
@@ -513,9 +579,9 @@ function useCloudCollection(storageKey, seedValue){
     let cancelled = false;
     async function load(){
       try {
-        const res = await fetch(`/api/storage/${encodeURIComponent(storageKey)}`);
+        const res = await apiFetch(`/api/storage/${encodeURIComponent(storageKey)}`);
         if (res.status === 404){
-          await fetch(`/api/storage/${encodeURIComponent(storageKey)}`, {
+          await apiFetch(`/api/storage/${encodeURIComponent(storageKey)}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ value: seedValue }),
@@ -538,7 +604,7 @@ function useCloudCollection(storageKey, seedValue){
   const persist = useCallback(async (updater) => {
     setDataState(prev => {
       const next = typeof updater === "function" ? updater(prev) : updater;
-      fetch(`/api/storage/${encodeURIComponent(storageKey)}`, {
+      apiFetch(`/api/storage/${encodeURIComponent(storageKey)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ value: next }),
@@ -1738,7 +1804,7 @@ function CommitteeView({ committee, settings, onUpdate }){
 /* ================================================================
    CONFIGURAÇÕES
    ================================================================ */
-function SettingsView({ settings, onUpdateSettings, areas, masterPlan, committee, cronograma, onImportAll, onResetAll }){
+function SettingsView({ settings, onUpdateSettings, areas, masterPlan, committee, cronograma, onImportAll, onResetAll, company, user, onUpdateCompany, onLogout }){
   const [local, setLocal] = useState(settings);
   const [newDept, setNewDept] = useState("");
   const [newRoundLabel, setNewRoundLabel] = useState("");
@@ -1747,6 +1813,52 @@ function SettingsView({ settings, onUpdateSettings, areas, masterPlan, committee
   const [importError, setImportError] = useState("");
   const [savedFlash, setSavedFlash] = useState(false);
   const fileRef = useRef(null);
+
+  const isAdmin = user && user.role === "admin";
+  const [companyLocal, setCompanyLocal] = useState(company || {});
+  const [companySaved, setCompanySaved] = useState(false);
+  const [companyError, setCompanyError] = useState("");
+  const [inviteCopied, setInviteCopied] = useState(false);
+  const logoFileRef = useRef(null);
+  useEffect(()=>{ setCompanyLocal(company || {}); }, [company]);
+
+  async function saveCompany(patch){
+    setCompanyError("");
+    try {
+      const res = await apiFetch("/api/company", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      if (!res.ok) throw new Error("falhou");
+      const json = await res.json();
+      onUpdateCompany(json.company);
+      setCompanySaved(true);
+      setTimeout(()=>setCompanySaved(false), 1800);
+    } catch (e){
+      setCompanyError("Não foi possível salvar. Tente novamente.");
+    }
+  }
+
+  async function handleLogoFile(e){
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const dataUrl = await compressImage(file, 240, 0.85);
+      await saveCompany({ logoUrl: dataUrl });
+    } catch (err){
+      setCompanyError("Não foi possível processar essa imagem.");
+    }
+  }
+
+  function copyInviteCode(){
+    if (!company) return;
+    navigator.clipboard.writeText(company.invite_code).then(()=>{
+      setInviteCopied(true);
+      setTimeout(()=>setInviteCopied(false), 1500);
+    }).catch(()=>{});
+  }
 
   useEffect(()=>{ setLocal(settings); }, [settings]);
 
@@ -1814,6 +1926,69 @@ function SettingsView({ settings, onUpdateSettings, areas, masterPlan, committee
             veem e editam os mesmos dados, como um quadro de gestão à vista digital. Não guarde aqui informações
             que não devam ser vistas por toda a equipe do programa.
           </p>
+        </div>
+      </div>
+
+      <div className="g5-settings-section">
+        <h3>Empresa & Marca</h3>
+        <p className="g5-help" style={{ marginBottom:12 }}>
+          Estes dados são exclusivos da sua empresa (<b>{company && company.name}</b>) — outras empresas que usarem
+          esta mesma plataforma têm sua própria marca e seus próprios dados, totalmente separados.
+        </p>
+        <div style={{ display:"flex", gap:16, alignItems:"center", flexWrap:"wrap", marginBottom:14 }}>
+          <div className="g5-logo-preview">
+            {company && company.logo_url ? <img src={company.logo_url} alt="Logo" /> : <Building2 size={22} />}
+          </div>
+          {isAdmin ? (
+            <>
+              <button className="g5-btn g5-btn-outline" onClick={()=>logoFileRef.current && logoFileRef.current.click()}>
+                <Camera size={14}/> Trocar logo
+              </button>
+              <input ref={logoFileRef} type="file" accept="image/*" className="g5-visually-hidden" onChange={handleLogoFile} />
+            </>
+          ) : <span className="g5-help">Somente administradores podem alterar a marca.</span>}
+        </div>
+        {isAdmin && (
+          <div className="g5-field-row" style={{ marginBottom:10, alignItems:"flex-end" }}>
+            <div className="g5-field">
+              <label className="g5-label">Nome da Empresa (visível só pra sua equipe)</label>
+              <input className="g5-input" value={companyLocal.name || ""} onChange={e=>setCompanyLocal(c=>({ ...c, name:e.target.value }))} />
+            </div>
+            <div className="g5-field">
+              <label className="g5-label">Cor Principal</label>
+              <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+                <input type="color" value={companyLocal.primary_color || "#5D7A34"} onChange={e=>setCompanyLocal(c=>({ ...c, primary_color:e.target.value }))} className="g5-color-input" />
+                <input className="g5-input" value={companyLocal.primary_color || ""} onChange={e=>setCompanyLocal(c=>({ ...c, primary_color:e.target.value }))} />
+              </div>
+            </div>
+          </div>
+        )}
+        {isAdmin && (
+          <button className="g5-btn g5-btn-primary" onClick={()=>saveCompany({ name: companyLocal.name, primaryColor: companyLocal.primary_color })}>
+            {companySaved ? <><Check size={15}/> Salvo</> : <><Palette size={15}/> Salvar Marca</>}
+          </button>
+        )}
+        {companyError && <p style={{ fontSize:12.5, color:"var(--red-dark)", marginTop:8 }}>{companyError}</p>}
+        {isAdmin && (
+          <div style={{ marginTop:18, paddingTop:14, borderTop:"1px dashed var(--line)" }}>
+            <label className="g5-label">Código de convite da empresa</label>
+            <p className="g5-help" style={{ marginBottom:8 }}>Compartilhe com colegas da sua equipe pra eles criarem a própria conta ligada à {company && company.name}.</p>
+            <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+              <code className="g5-invite-code">{company && company.invite_code}</code>
+              <button className="g5-btn g5-btn-outline" onClick={copyInviteCode}><KeyRound size={14}/> {inviteCopied ? "Copiado!" : "Copiar"}</button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="g5-settings-section">
+        <h3>Minha Conta</h3>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:12 }}>
+          <div>
+            <div style={{ fontWeight:700, fontSize:14 }}>{user && user.name}</div>
+            <div className="g5-help">{user && user.email} · {isAdmin ? "Administrador" : "Membro"} de {company && company.name}</div>
+          </div>
+          <button className="g5-btn g5-btn-outline" onClick={onLogout}><LogOut size={14}/> Sair da conta</button>
         </div>
       </div>
 
@@ -1944,13 +2119,18 @@ const TABS = [
   { id:"settings",    label:"Configurações", icon:SettingsIcon },
 ];
 
-function AppHeader({ settings, syncStatus, activeTab, onSelectTab, cicloView, onChangeCiclo, ciclosDisponiveis }){
+function AppHeader({ settings, syncStatus, activeTab, onSelectTab, cicloView, onChangeCiclo, ciclosDisponiveis, company, user, onLogout }){
   const isHistorico = cicloView !== "4";
+  const brandColor = (company && company.primary_color) || null;
   return (
-    <header className="g5-header">
+    <header className="g5-header" style={brandColor ? { "--bagaco": brandColor } : undefined}>
       <div className="g5-header-row">
         <div className="g5-brand">
-          <div className="g5-brand-mark"><ShieldCheck size={22} strokeWidth={2.2}/></div>
+          {company && company.logo_url ? (
+            <img src={company.logo_url} alt="" className="g5-brand-logo" />
+          ) : (
+            <div className="g5-brand-mark"><ShieldCheck size={22} strokeWidth={2.2}/></div>
+          )}
           <div className="g5-brand-text">
             <div className="g5-brand-title">{settings.programName || "Programa 5S"}</div>
             <div className="g5-brand-sub">{settings.millName}</div>
@@ -1958,6 +2138,12 @@ function AppHeader({ settings, syncStatus, activeTab, onSelectTab, cicloView, on
         </div>
         <div className="g5-header-right">
           <SyncIndicator status={syncStatus} />
+          {user && (
+            <div className="g5-user-chip" title={user.email}>
+              <span className="g5-user-name">{user.name}</span>
+              <button type="button" className="g5-user-logout" onClick={onLogout} title="Sair"><LogOut size={13}/></button>
+            </div>
+          )}
           {ciclosDisponiveis && (
             <div className="g5-ciclo-switch" title="Ver outro ciclo">
               {ciclosDisponiveis.map(c => (
@@ -2000,6 +2186,111 @@ const CICLOS_DISPONIVEIS = [
   { id: "4", label: "4º" },
 ];
 
+/* ================================================================
+   LOGIN / CADASTRO — tela exibida antes de qualquer dado carregar.
+   Três modos: entrar, criar uma empresa nova (primeiro admin) e
+   entrar numa empresa existente com código de convite.
+   ================================================================ */
+function LoginScreen({ onAuthenticated }){
+  const [mode, setMode] = useState("login"); // login | register | join
+  const [form, setForm] = useState({ email:"", password:"", name:"", companyName:"", inviteCode:"" });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  function set(k,v){ setForm(f => ({ ...f, [k]: v })); }
+
+  const ERROR_MESSAGES = {
+    missing_fields: "Preencha todos os campos.",
+    weak_password: "A senha precisa ter pelo menos 6 caracteres.",
+    email_in_use: "Já existe uma conta com este e-mail.",
+    invalid_invite_code: "Código de convite inválido.",
+    invalid_credentials: "E-mail ou senha incorretos.",
+  };
+
+  async function submit(e){
+    e.preventDefault();
+    setError(""); setLoading(true);
+    try {
+      let url, body;
+      if (mode === "login"){
+        url = "/api/auth/login";
+        body = { email: form.email.trim(), password: form.password };
+      } else if (mode === "register"){
+        url = "/api/auth/register-company";
+        body = { companyName: form.companyName.trim(), name: form.name.trim(), email: form.email.trim(), password: form.password };
+      } else {
+        url = "/api/auth/join";
+        body = { inviteCode: form.inviteCode.trim(), name: form.name.trim(), email: form.email.trim(), password: form.password };
+      }
+      const res = await fetch(url, { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(body) });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok){
+        setError(ERROR_MESSAGES[json.error] || "Não foi possível concluir. Tente novamente.");
+        setLoading(false);
+        return;
+      }
+      setAuthToken(json.token);
+      onAuthenticated();
+    } catch (err){
+      setError("Falha de conexão. Verifique sua internet e tente novamente.");
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="g5-login-shell">
+      <div className="g5-login-card">
+        <div className="g5-login-brand">
+          <div className="g5-brand-mark"><ShieldCheck size={24} strokeWidth={2.2}/></div>
+          <div>
+            <div className="g5-login-title">Programa 5S</div>
+            <div className="g5-login-sub">Plataforma multi-empresa</div>
+          </div>
+        </div>
+
+        <div className="g5-login-tabs">
+          <button type="button" className={classNames("g5-login-tab", mode==="login" && "active")} onClick={()=>{ setMode("login"); setError(""); }}>Entrar</button>
+          <button type="button" className={classNames("g5-login-tab", mode==="register" && "active")} onClick={()=>{ setMode("register"); setError(""); }}>Nova empresa</button>
+          <button type="button" className={classNames("g5-login-tab", mode==="join" && "active")} onClick={()=>{ setMode("join"); setError(""); }}>Tenho um convite</button>
+        </div>
+
+        <form onSubmit={submit} className="g5-login-form">
+          {mode === "register" && (
+            <div className="g5-field">
+              <label className="g5-label">Nome da empresa</label>
+              <input className="g5-input" value={form.companyName} onChange={e=>set("companyName", e.target.value)} placeholder="Ex.: Usina Trapiche" required />
+            </div>
+          )}
+          {mode === "join" && (
+            <div className="g5-field">
+              <label className="g5-label">Código de convite</label>
+              <input className="g5-input" value={form.inviteCode} onChange={e=>set("inviteCode", e.target.value.toUpperCase())} placeholder="Ex.: 3HD9PE8P" required />
+            </div>
+          )}
+          {(mode === "register" || mode === "join") && (
+            <div className="g5-field">
+              <label className="g5-label">Seu nome</label>
+              <input className="g5-input" value={form.name} onChange={e=>set("name", e.target.value)} required />
+            </div>
+          )}
+          <div className="g5-field">
+            <label className="g5-label">E-mail</label>
+            <input className="g5-input" type="email" value={form.email} onChange={e=>set("email", e.target.value)} required />
+          </div>
+          <div className="g5-field">
+            <label className="g5-label">Senha</label>
+            <input className="g5-input" type="password" value={form.password} onChange={e=>set("password", e.target.value)} required minLength={6} />
+          </div>
+          {error && <p className="g5-login-error">{error}</p>}
+          <button className="g5-btn g5-btn-primary g5-login-submit" type="submit" disabled={loading}>
+            {loading ? "Aguarde…" : mode === "login" ? "Entrar" : mode === "register" ? "Criar empresa" : "Entrar na empresa"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 /* ----------------------------------------------------------------
    Compatibilidade com dados já salvos no banco em formato antigo
    (de antes do suporte a múltiplos ciclos): normaliza para o novo
@@ -2034,7 +2325,8 @@ function normalizeAreasByCycle(raw){
   };
 }
 
-export default function App(){
+function App({ session, onUpdateCompany, onLogout }){
+  const { user, company } = session;
   const [areasByCycle, persistAreasByCycle, statusAreas] = useCloudCollection("g5s:areas", SEED_AREAS_BY_CYCLE);
   const [masterPlan, persistMasterPlan, statusMP] = useCloudCollection("g5s:masterplan", SEED_MASTERPLAN);
   const [committee, persistCommittee, statusCommittee] = useCloudCollection("g5s:committee", SEED_COMMITTEE);
@@ -2159,7 +2451,8 @@ export default function App(){
     <div className="g5-root">
       <style>{STYLES}{STYLES_B}</style>
       <AppHeader settings={settings} syncStatus={overallStatus} activeTab={activeTab} onSelectTab={selectTab}
-        cicloView={cicloView} onChangeCiclo={setCicloView} ciclosDisponiveis={CICLOS_DISPONIVEIS} />
+        cicloView={cicloView} onChangeCiclo={setCicloView} ciclosDisponiveis={CICLOS_DISPONIVEIS}
+        company={company} user={user} onLogout={onLogout} />
       <main className="g5-main">
         {activeTab === "dashboard" && (
           <DashboardView areas={areas} settings={settings} masterPlan={masterPlan} onUpdateAreas={persistAreas} onOpenArea={openArea} />
@@ -2182,10 +2475,59 @@ export default function App(){
         )}
         {activeTab === "settings" && (
           <SettingsView settings={settings} onUpdateSettings={persistSettings} areas={areas} masterPlan={masterPlan}
-            committee={committee} cronograma={cronograma} onImportAll={importAll} onResetAll={resetAll} />
+            committee={committee} cronograma={cronograma} onImportAll={importAll} onResetAll={resetAll}
+            company={company} user={user} onUpdateCompany={onUpdateCompany} onLogout={onLogout} />
         )}
       </main>
       {toast && <Toast message={toast} onDone={()=>setToast(null)} />}
     </div>
   );
+}
+
+/* ================================================================
+   ROOT — decide entre mostrar a tela de login ou o app, e mantém a
+   sessão (usuário + empresa) carregada a partir do token salvo.
+   ================================================================ */
+export default function Root(){
+  const [token, setToken] = useState(() => getAuthToken());
+  const [session, setSession] = useState(null);
+  const [checking, setChecking] = useState(true);
+
+  useEffect(() => {
+    function handleTokenChange(t){ setToken(t); }
+    AUTH_LISTENERS.add(handleTokenChange);
+    return () => AUTH_LISTENERS.delete(handleTokenChange);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!token){ setSession(null); setChecking(false); return; }
+    setChecking(true);
+    apiFetch("/api/auth/me")
+      .then(async (res) => {
+        if (!res.ok){ if (!cancelled) setSession(null); return; }
+        const json = await res.json();
+        if (!cancelled) setSession(json);
+      })
+      .catch(() => { if (!cancelled) setSession(null); })
+      .finally(() => { if (!cancelled) setChecking(false); });
+    return () => { cancelled = true; };
+  }, [token]);
+
+  function handleLogout(){ setAuthToken(null); }
+  function handleUpdateCompany(company){ setSession(s => s ? { ...s, company } : s); }
+
+  if (checking){
+    return (
+      <div className="g5-login-shell">
+        <div style={{ color:"#fff", display:"flex", alignItems:"center", gap:10 }}>
+          <Loader2 size={20} className="g5-spin" /> Carregando…
+        </div>
+      </div>
+    );
+  }
+  if (!token || !session){
+    return <LoginScreen onAuthenticated={() => setToken(getAuthToken())} />;
+  }
+  return <App session={session} onLogout={handleLogout} onUpdateCompany={handleUpdateCompany} />;
 }
