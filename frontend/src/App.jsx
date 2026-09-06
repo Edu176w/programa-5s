@@ -2519,15 +2519,23 @@ export default function Root(){
 
   if (checking){
     return (
-      <div className="g5-login-shell">
-        <div style={{ color:"#fff", display:"flex", alignItems:"center", gap:10 }}>
-          <Loader2 size={20} className="g5-spin" /> Carregando…
+      <>
+        <style>{STYLES}{STYLES_B}</style>
+        <div className="g5-login-shell">
+          <div style={{ color:"#fff", display:"flex", alignItems:"center", gap:10 }}>
+            <Loader2 size={20} className="g5-spin" /> Carregando…
+          </div>
         </div>
-      </div>
+      </>
     );
   }
   if (!token || !session){
-    return <LoginScreen onAuthenticated={() => setToken(getAuthToken())} />;
+    return (
+      <>
+        <style>{STYLES}{STYLES_B}</style>
+        <LoginScreen onAuthenticated={() => setToken(getAuthToken())} />
+      </>
+    );
   }
   return <App session={session} onLogout={handleLogout} onUpdateCompany={handleUpdateCompany} />;
 }
