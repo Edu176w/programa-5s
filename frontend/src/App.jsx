@@ -2000,6 +2000,40 @@ const CICLOS_DISPONIVEIS = [
   { id: "4", label: "4º" },
 ];
 
+/* ----------------------------------------------------------------
+   Compatibilidade com dados já salvos no banco em formato antigo
+   (de antes do suporte a múltiplos ciclos): normaliza para o novo
+   formato em toda leitura E toda escrita, então funciona não importa
+   o que já esteja gravado, sem precisar de migração manual no banco.
+   ---------------------------------------------------------------- */
+function normalizeSettingsRaw(raw){
+  if (!raw) return raw;
+  if (raw.ciclos) return raw; // já no formato novo
+  const seedCiclos = SEED_SETTINGS.ciclos;
+  return {
+    millName: raw.millName, programName: raw.programName, thresholds: raw.thresholds,
+    departments: raw.departments, developedNote: raw.developedNote,
+    cicloAtual: "4",
+    ciclos: {
+      "1": seedCiclos["1"],
+      "2": seedCiclos["2"],
+      "3": { label: raw.cycleLabel || seedCiclos["3"].label, period: raw.cyclePeriod || seedCiclos["3"].period, rounds: raw.rounds || seedCiclos["3"].rounds },
+      "4": seedCiclos["4"],
+    },
+  };
+}
+function normalizeAreasByCycle(raw){
+  if (!raw) return raw;
+  if (!Array.isArray(raw)) return raw; // já no formato novo (objeto por ciclo)
+  const c4 = raw.map(a => ({ id:a.id, nome:a.nome, departamento:a.departamento, lider:a.lider, auditor:a.auditor, dataFoto:null, itens:[], auditorias:{} }));
+  return {
+    "1": SEED_AREAS_BY_CYCLE["1"],
+    "2": SEED_AREAS_BY_CYCLE["2"],
+    "3": raw,
+    "4": c4,
+  };
+}
+
 export default function App(){
   const [areasByCycle, persistAreasByCycle, statusAreas] = useCloudCollection("g5s:areas", SEED_AREAS_BY_CYCLE);
   const [masterPlan, persistMasterPlan, statusMP] = useCloudCollection("g5s:masterplan", SEED_MASTERPLAN);
@@ -2016,36 +2050,41 @@ export default function App(){
   // continua enxergando as mesmas formas de sempre (array de áreas com
   // itens/auditorias, e settings.cycleLabel/cyclePeriod/rounds), sem
   // precisar saber que agora existem 4 ciclos por trás.
-  const areas = areasByCycle ? (areasByCycle[cicloView] || []) : null;
-  const settings = settingsRaw ? {
-    ...settingsRaw,
-    cycleLabel: settingsRaw.ciclos[cicloView].label,
-    cyclePeriod: settingsRaw.ciclos[cicloView].period,
-    rounds: settingsRaw.ciclos[cicloView].rounds,
-  } : null;
+  const areas = areasByCycle ? (normalizeAreasByCycle(areasByCycle)[cicloView] || []) : null;
+  const settings = settingsRaw ? (() => {
+    const norm = normalizeSettingsRaw(settingsRaw);
+    return {
+      ...norm,
+      cycleLabel: norm.ciclos[cicloView].label,
+      cyclePeriod: norm.ciclos[cicloView].period,
+      rounds: norm.ciclos[cicloView].rounds,
+    };
+  })() : null;
 
   const persistAreas = useCallback((updater) => {
     persistAreasByCycle(prev => {
-      const prevForCycle = (prev && prev[cicloView]) || [];
+      const prevNorm = normalizeAreasByCycle(prev) || {};
+      const prevForCycle = prevNorm[cicloView] || [];
       const nextForCycle = typeof updater === "function" ? updater(prevForCycle) : updater;
-      return { ...prev, [cicloView]: nextForCycle };
+      return { ...prevNorm, [cicloView]: nextForCycle };
     });
   }, [persistAreasByCycle, cicloView]);
 
   const persistSettings = useCallback((updater) => {
     persistSettingsRaw(prev => {
+      const prevNorm = normalizeSettingsRaw(prev);
       const prevView = {
-        ...prev,
-        cycleLabel: prev.ciclos[cicloView].label,
-        cyclePeriod: prev.ciclos[cicloView].period,
-        rounds: prev.ciclos[cicloView].rounds,
+        ...prevNorm,
+        cycleLabel: prevNorm.ciclos[cicloView].label,
+        cyclePeriod: prevNorm.ciclos[cicloView].period,
+        rounds: prevNorm.ciclos[cicloView].rounds,
       };
       const nextView = typeof updater === "function" ? updater(prevView) : updater;
       const { cycleLabel, cyclePeriod, rounds, ciclos, ...rest } = nextView;
       return {
-        ...prev,
+        ...prevNorm,
         ...rest,
-        ciclos: { ...prev.ciclos, [cicloView]: { label: cycleLabel, period: cyclePeriod, rounds } },
+        ciclos: { ...prevNorm.ciclos, [cicloView]: { label: cycleLabel, period: cyclePeriod, rounds } },
       };
     });
   }, [persistSettingsRaw, cicloView]);
