@@ -2565,6 +2565,11 @@ function App({ session, onUpdateCompany, onLogout }){
     ? "ready" : "loading";
 
   function selectTab(tabId){
+    if (tabId === "platform"){
+      // Voltar pra "Plataforma" sempre volta ao estado de landing (esconde
+      // as abas operacionais de novo), mesmo vindo de dentro de uma empresa.
+      setOwnerEnteredCompany(false);
+    }
     setActiveTab(tabId);
     if (tabId !== "areas") setSelectedAreaId(null);
   }
