@@ -6,7 +6,7 @@ import {
   Filter, Save, RotateCcw, Loader2, WifiOff, Wrench, Briefcase, Truck, ClipboardCheck,
   BarChart3, ListChecks, Building2, ImagePlus, ImageOff, CalendarDays, UserRound,
   ShieldCheck, Menu, Cloud, CircleAlert, FolderOpen, ChevronUp, MapPin, FileDown, FileUp,
-  LogOut, KeyRound, Palette
+  LogOut, KeyRound, Palette, Eye
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip,
@@ -136,6 +136,10 @@ const STYLES = `
   display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;
   background:var(--bagaco-tint); border:1px solid var(--bagaco); border-radius:var(--radius-m);
   padding:14px 16px; margin-bottom:14px; color:var(--ink-on-paper); font-size:13.5px;
+}
+.g5-support-banner{
+  display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;
+  background:#7A2E2E; color:#fff; font-size:12.5px; font-weight:600; padding:7px 20px;
 }
 
 .g5-tabbar{ background:var(--panel); border-bottom:1px solid var(--steel); overflow-x:auto; }
@@ -569,6 +573,20 @@ async function apiFetch(url, options){
   const res = await fetch(url, Object.assign({}, options, { headers }));
   if (res.status === 401) setAuthToken(null);
   return res;
+}
+
+// Enquanto o dono está em "modo suporte" dentro dos dados de outra empresa,
+// guardamos o token original dele aqui — é o que permite sair do modo
+// suporte e voltar exatamente pra própria empresa depois.
+const OWNER_BACKUP_TOKEN_KEY = "g5s_owner_backup_token";
+function saveOwnerBackupToken(token){
+  if (typeof window !== "undefined") window.localStorage.setItem(OWNER_BACKUP_TOKEN_KEY, token);
+}
+function getOwnerBackupToken(){
+  return typeof window !== "undefined" ? window.localStorage.getItem(OWNER_BACKUP_TOKEN_KEY) : null;
+}
+function clearOwnerBackupToken(){
+  if (typeof window !== "undefined") window.localStorage.removeItem(OWNER_BACKUP_TOKEN_KEY);
 }
 
 /* ================================================================
@@ -2133,15 +2151,23 @@ const TABS = [
    cadastradas (nome, quantos usuários, quando entrou, última
    atividade). Nunca mostra dados operacionais de nenhuma empresa.
    ================================================================ */
-function PlatformView({ ownCompanyId, onEnterCompany }){
+function PlatformView({ ownCompanyId, currentUserId, onEnterCompany, onEnterSupport }){
   const [companies, setCompanies] = useState(null);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
+  const [supportTarget, setSupportTarget] = useState(null);
+  const [enteringSupport, setEnteringSupport] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState("");
   const [justCreated, setJustCreated] = useState(null);
+
+  const [owners, setOwners] = useState(null);
+  const [ownersError, setOwnersError] = useState("");
+  const [newOwnerEmail, setNewOwnerEmail] = useState("");
+  const [grantError, setGrantError] = useState("");
+  const [granting, setGranting] = useState(false);
+  const [revoking, setRevoking] = useState(null);
 
   function loadCompanies(){
     return apiFetch("/api/platform/companies")
@@ -2152,8 +2178,17 @@ function PlatformView({ ownCompanyId, onEnterCompany }){
       })
       .catch(() => setError("Não foi possível carregar as empresas."));
   }
+  function loadOwners(){
+    return apiFetch("/api/platform/owners")
+      .then(async (res) => {
+        if (!res.ok) throw new Error("falhou");
+        const json = await res.json();
+        setOwners(json.owners);
+      })
+      .catch(() => setOwnersError("Não foi possível carregar os donos da plataforma."));
+  }
 
-  useEffect(() => { loadCompanies(); }, []);
+  useEffect(() => { loadCompanies(); loadOwners(); }, []);
 
   async function createCompany(e){
     e.preventDefault();
@@ -2177,6 +2212,36 @@ function PlatformView({ ownCompanyId, onEnterCompany }){
     }
   }
 
+  async function grantOwner(e){
+    e.preventDefault();
+    if (!newOwnerEmail.trim()) return;
+    setGranting(true); setGrantError("");
+    try {
+      const res = await apiFetch("/api/platform/owners", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: newOwnerEmail.trim() }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setGrantError(json.error === "user_not_found"
+          ? "Essa pessoa ainda não tem conta em nenhuma empresa — ela precisa criar a conta dela primeiro (com o convite de alguma empresa), aí sim você pode torná-la dona."
+          : "Não foi possível conceder acesso de dono.");
+        return;
+      }
+      setNewOwnerEmail("");
+      await loadOwners();
+    } finally {
+      setGranting(false);
+    }
+  }
+
+  async function revokeOwner(ownerId){
+    setRevoking(null);
+    await apiFetch(`/api/platform/owners/${ownerId}`, { method: "DELETE" });
+    await loadOwners();
+  }
+
   function copyCode(code){
     navigator.clipboard.writeText(code).catch(()=>{});
   }
@@ -2188,7 +2253,13 @@ function PlatformView({ ownCompanyId, onEnterCompany }){
 
   function handleRowClick(c){
     if (c.id === ownCompanyId) onEnterCompany();
-    else setNotice(`Ainda não é possível entrar nos dados de "${c.name}" por aqui — só é possível ver os metadados de cadastro.`);
+    else setSupportTarget(c);
+  }
+  async function confirmEnterSupport(){
+    setEnteringSupport(true);
+    await onEnterSupport(supportTarget);
+    setEnteringSupport(false);
+    setSupportTarget(null);
   }
 
   return (
@@ -2220,7 +2291,6 @@ function PlatformView({ ownCompanyId, onEnterCompany }){
       )}
 
       {error && <p className="g5-login-error">{error}</p>}
-      {notice && <p className="g5-help" style={{ background:"var(--paper-2)", border:"1px solid var(--line)", borderRadius:8, padding:"8px 12px" }}>{notice}</p>}
       {!companies && !error && <p className="g5-help">Carregando…</p>}
       {companies && (
         <div className="g5-table-wrap">
@@ -2253,15 +2323,86 @@ function PlatformView({ ownCompanyId, onEnterCompany }){
           {companies.length === 0 && <p className="g5-help">Nenhuma empresa cadastrada ainda.</p>}
         </div>
       )}
+
+      <div style={{ marginTop:32 }}>
+        <SectionHeading eyebrow="Acesso sensível" title="Donos da Plataforma"
+          desc="Quem tem essa marcação enxerga esta tela e todas as empresas cadastradas — não afeta o acesso de ninguém à própria empresa." />
+
+        <form onSubmit={grantOwner} className="g5-platform-newco">
+          <div className="g5-field" style={{ flex:1, marginBottom:0 }}>
+            <label className="g5-label">Tornar dono da plataforma (e-mail de uma conta já existente)</label>
+            <input className="g5-input" type="email" value={newOwnerEmail} onChange={e=>setNewOwnerEmail(e.target.value)} placeholder="pessoa@empresa.com" required />
+          </div>
+          <button className="g5-btn g5-btn-primary" type="submit" disabled={granting}>{granting ? "Aguarde…" : "Conceder acesso"}</button>
+        </form>
+        {grantError && <p className="g5-login-error">{grantError}</p>}
+
+        {ownersError && <p className="g5-login-error">{ownersError}</p>}
+        {!owners && !ownersError && <p className="g5-help">Carregando…</p>}
+        {owners && (
+          <div className="g5-table-wrap">
+            <table className="g5-table">
+              <thead>
+                <tr>
+                  <th>Nome</th>
+                  <th>E-mail</th>
+                  <th>Empresa</th>
+                  <th className="no-sort"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {owners.map(o => (
+                  <tr key={o.id}>
+                    <td>{o.name}{o.id === currentUserId && <span className="g5-historico-badge" style={{ marginLeft:8 }}>Você</span>}</td>
+                    <td>{o.email}</td>
+                    <td>{o.company_name}</td>
+                    <td style={{ textAlign:"right" }}>
+                      <button className="g5-btn g5-btn-ghost g5-btn-icon" title="Remover acesso de dono" onClick={()=>setRevoking(o)}><Trash2 size={13}/></button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {revoking && (
+        <ConfirmDialog
+          title="Remover acesso de dono?"
+          message={revoking.id === currentUserId
+            ? "Isso vai tirar SEU PRÓPRIO acesso de dono da plataforma agora mesmo — você continuará normalmente na sua empresa, mas não verá mais esta tela nem poderá desfazer isso sozinho depois. Tem certeza?"
+            : `${revoking.name} deixará de ver esta tela e de gerenciar empresas, mas continuará normalmente na conta dela.`}
+          confirmLabel="Remover acesso"
+          danger
+          onCancel={()=>setRevoking(null)}
+          onConfirm={()=>revokeOwner(revoking.id)}
+        />
+      )}
+      {supportTarget && (
+        <ConfirmDialog
+          title="Entrar em modo suporte?"
+          message={`Você terá acesso completo (como admin) aos dados de "${supportTarget.name}" — inclusive editar. Isso fica registrado para auditoria, mas não é mostrado à empresa. Você pode sair do modo suporte quando quiser.`}
+          confirmLabel={enteringSupport ? "Entrando…" : "Entrar em modo suporte"}
+          onCancel={()=>setSupportTarget(null)}
+          onConfirm={confirmEnterSupport}
+        />
+      )}
     </div>
   );
 }
 
-function AppHeader({ settings, syncStatus, activeTab, onSelectTab, cicloView, onChangeCiclo, ciclosDisponiveis, company, user, onLogout, showOnlyPlatformTab }){
+function AppHeader({ settings, syncStatus, activeTab, onSelectTab, cicloView, onChangeCiclo, ciclosDisponiveis, company, user, onLogout, showOnlyPlatformTab, impersonating, onExitSupport }){
   const isHistorico = cicloView !== "4";
   const brandColor = (company && company.primary_color) || null;
   return (
     <header className="g5-header" style={!showOnlyPlatformTab && brandColor ? { "--bagaco": brandColor } : undefined}>
+      {impersonating && (
+        <div className="g5-support-banner">
+          <span><Eye size={14}/> Modo suporte — você está vendo os dados de <b>{company && company.name}</b> como admin.</span>
+          <button className="g5-btn g5-btn-outline" onClick={onExitSupport} style={{ padding:"4px 10px", fontSize:12 }}>Sair do modo suporte</button>
+        </div>
+      )}
       <div className="g5-header-row">
         <div className="g5-brand">
           {!showOnlyPlatformTab && company && company.logo_url ? (
@@ -2534,8 +2675,8 @@ function App({ session, onUpdateCompany, onLogout }){
     });
   }, [persistSettingsRaw, cicloView]);
 
-  const [activeTab, setActiveTab] = useState(() => (user && user.isOwner) ? "platform" : "dashboard");
-  const [ownerEnteredCompany, setOwnerEnteredCompany] = useState(false);
+  const [activeTab, setActiveTab] = useState(() => (user && user.isOwner && !session.impersonating) ? "platform" : "dashboard");
+  const [ownerEnteredCompany, setOwnerEnteredCompany] = useState(() => !!session.impersonating);
   const [selectedAreaId, setSelectedAreaId] = useState(null);
   const [toast, setToast] = useState(null);
 
@@ -2545,9 +2686,22 @@ function App({ session, onUpdateCompany, onLogout }){
     setOwnerEnteredCompany(true);
     setActiveTab("dashboard");
   }
-  function backToPlatform(){
-    setOwnerEnteredCompany(false);
-    setActiveTab("platform");
+  async function enterSupportMode(targetCompany){
+    const res = await apiFetch(`/api/platform/companies/${targetCompany.id}/impersonate`, { method: "POST" });
+    if (!res.ok){
+      setToast("Não foi possível entrar em modo suporte.");
+      return;
+    }
+    const json = await res.json();
+    saveOwnerBackupToken(getAuthToken());
+    setAuthToken(json.token); // Root detecta a troca e recarrega a sessão pra essa empresa
+  }
+  function exitSupportMode(){
+    const backup = getOwnerBackupToken();
+    if (backup){
+      clearOwnerBackupToken();
+      setAuthToken(backup);
+    }
   }
 
   useEffect(() => {
@@ -2624,7 +2778,8 @@ function App({ session, onUpdateCompany, onLogout }){
       <style>{STYLES}{STYLES_B}</style>
       <AppHeader settings={settings} syncStatus={overallStatus} activeTab={activeTab} onSelectTab={selectTab}
         cicloView={cicloView} onChangeCiclo={setCicloView} ciclosDisponiveis={CICLOS_DISPONIVEIS}
-        company={company} user={user} onLogout={onLogout} showOnlyPlatformTab={showOnlyPlatformTab} />
+        company={company} user={user} onLogout={onLogout} showOnlyPlatformTab={showOnlyPlatformTab}
+        impersonating={session.impersonating} onExitSupport={exitSupportMode} />
       <main className="g5-main">
         {activeTab === "dashboard" && (
           <DashboardView areas={areas} settings={settings} masterPlan={masterPlan} onUpdateAreas={persistAreas} onOpenArea={openArea} />
@@ -2651,7 +2806,7 @@ function App({ session, onUpdateCompany, onLogout }){
             company={company} user={user} onUpdateCompany={onUpdateCompany} onLogout={onLogout} />
         )}
         {activeTab === "platform" && user && user.isOwner && (
-          <PlatformView ownCompanyId={company.id} onEnterCompany={enterOwnCompany} />
+          <PlatformView ownCompanyId={company.id} currentUserId={user.id} onEnterCompany={enterOwnCompany} onEnterSupport={enterSupportMode} />
         )}
       </main>
       {toast && <Toast message={toast} onDone={()=>setToast(null)} />}
@@ -2689,7 +2844,7 @@ export default function Root(){
     return () => { cancelled = true; };
   }, [token]);
 
-  function handleLogout(){ setAuthToken(null); }
+  function handleLogout(){ clearOwnerBackupToken(); setAuthToken(null); }
   function handleUpdateCompany(company){ setSession(s => s ? { ...s, company } : s); }
 
   if (checking){
@@ -2712,5 +2867,5 @@ export default function Root(){
       </>
     );
   }
-  return <App session={session} onLogout={handleLogout} onUpdateCompany={handleUpdateCompany} />;
+  return <App key={session.company.id} session={session} onLogout={handleLogout} onUpdateCompany={handleUpdateCompany} />;
 }

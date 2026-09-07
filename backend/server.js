@@ -148,10 +148,17 @@ app.post("/api/auth/login", async (req, res) => {
 app.get("/api/auth/me", requireAuth, async (req, res) => {
   try {
     const userRes = await pool.query(`SELECT id, name, email, role, is_owner FROM users WHERE id = $1`, [req.auth.userId]);
-    const user = userRes.rows[0];
-    if (!user) return res.status(404).json({ error: "not_found" });
+    const userRow = userRes.rows[0];
+    if (!userRow) return res.status(404).json({ error: "not_found" });
     const company = await companyPublicView(req.auth.companyId);
-    res.json({ user: { id:user.id, name:user.name, email:user.email, role:user.role, isOwner: user.is_owner }, company });
+    // Em modo suporte, a sessão sempre tem privilégio de admin na empresa
+    // visitada, independente do papel real do dono na própria empresa dele.
+    const role = req.auth.impersonating ? "admin" : userRow.role;
+    res.json({
+      user: { id: userRow.id, name: userRow.name, email: userRow.email, role, isOwner: userRow.is_owner },
+      company,
+      impersonating: !!req.auth.impersonating,
+    });
   } catch (e) {
     console.error("GET /api/auth/me failed:", e);
     res.status(500).json({ error: "server_error" });
@@ -212,6 +219,100 @@ app.post("/api/platform/companies", requireAuth, async (req, res) => {
     res.json({ company: await companyPublicView(inserted.rows[0].id) });
   } catch (e) {
     console.error("POST /api/platform/companies failed:", e);
+    res.status(500).json({ error: "server_error" });
+  }
+});
+
+// ---------------------------------------------------------------
+// Donos da plataforma — "is_owner" é um atributo da CONTA, não da
+// empresa, então transferir/conceder isso não move ninguém de empresa
+// nem afeta o acesso dela. Só quem já é dono pode conceder ou remover
+// esse atributo de outra conta (ou da própria).
+// ---------------------------------------------------------------
+async function assertOwner(req, res){
+  const ownerCheck = await pool.query(`SELECT is_owner FROM users WHERE id = $1`, [req.auth.userId]);
+  if (!ownerCheck.rows[0] || !ownerCheck.rows[0].is_owner) {
+    res.status(403).json({ error: "forbidden" });
+    return false;
+  }
+  return true;
+}
+
+app.get("/api/platform/owners", requireAuth, async (req, res) => {
+  try {
+    if (!(await assertOwner(req, res))) return;
+    const result = await pool.query(`
+      SELECT u.id, u.name, u.email, c.name AS company_name
+      FROM users u JOIN companies c ON c.id = u.company_id
+      WHERE u.is_owner = true
+      ORDER BY u.created_at ASC
+    `);
+    res.json({ owners: result.rows });
+  } catch (e) {
+    console.error("GET /api/platform/owners failed:", e);
+    res.status(500).json({ error: "server_error" });
+  }
+});
+
+app.post("/api/platform/owners", requireAuth, async (req, res) => {
+  try {
+    if (!(await assertOwner(req, res))) return;
+    const { email } = req.body || {};
+    if (!email || !String(email).trim()) {
+      return res.status(400).json({ error: "missing_fields" });
+    }
+    const target = await pool.query(`SELECT id FROM users WHERE email = $1`, [String(email).toLowerCase().trim()]);
+    if (target.rows.length === 0) {
+      return res.status(404).json({ error: "user_not_found" });
+    }
+    await pool.query(`UPDATE users SET is_owner = true WHERE id = $1`, [target.rows[0].id]);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("POST /api/platform/owners failed:", e);
+    res.status(500).json({ error: "server_error" });
+  }
+});
+
+app.delete("/api/platform/owners/:userId", requireAuth, async (req, res) => {
+  try {
+    if (!(await assertOwner(req, res))) return;
+    await pool.query(`UPDATE users SET is_owner = false WHERE id = $1`, [req.params.userId]);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("DELETE /api/platform/owners/:userId failed:", e);
+    res.status(500).json({ error: "server_error" });
+  }
+});
+
+// Modo suporte: emite um token temporário (2h) com acesso de admin à
+// empresa escolhida, pro dono da plataforma poder ajudar um cliente. Fica
+// registrado em support_access_log — não é mostrado à empresa, mas existe
+// pra auditoria caso precise justificar um acesso.
+app.post("/api/platform/companies/:id/impersonate", requireAuth, async (req, res) => {
+  try {
+    const ownerRes = await pool.query(`SELECT id, company_id, is_owner FROM users WHERE id = $1`, [req.auth.userId]);
+    const ownerRow = ownerRes.rows[0];
+    if (!ownerRow || !ownerRow.is_owner) {
+      return res.status(403).json({ error: "forbidden" });
+    }
+    const companyId = Number(req.params.id);
+    const companyRow = await pool.query(`SELECT id FROM companies WHERE id = $1`, [companyId]);
+    if (companyRow.rows.length === 0) {
+      return res.status(404).json({ error: "not_found" });
+    }
+
+    await pool.query(
+      `INSERT INTO support_access_log (owner_user_id, company_id) VALUES ($1, $2)`,
+      [ownerRow.id, companyId]
+    );
+
+    const token = signToken(
+      { id: ownerRow.id, company_id: companyId, role: "admin", is_owner: true },
+      { impersonating: true }
+    );
+    res.json({ token, company: await companyPublicView(companyId) });
+  } catch (e) {
+    console.error("POST /api/platform/companies/:id/impersonate failed:", e);
     res.status(500).json({ error: "server_error" });
   }
 });

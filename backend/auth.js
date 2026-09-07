@@ -13,6 +13,7 @@ if (!JWT_SECRET) {
 }
 
 const TOKEN_TTL = "30d";
+const IMPERSONATION_TOKEN_TTL = "2h"; // sessão de suporte expira rápido, por segurança
 
 export async function hashPassword(plain) {
   return bcrypt.hash(plain, 10);
@@ -22,17 +23,18 @@ export async function verifyPassword(plain, hash) {
   return bcrypt.compare(plain, hash);
 }
 
-export function signToken(user) {
+export function signToken(user, options) {
+  options = options || {};
   return jwt.sign(
-    { userId: user.id, companyId: user.company_id, role: user.role, isOwner: !!user.is_owner },
+    { userId: user.id, companyId: user.company_id, role: user.role, isOwner: !!user.is_owner, impersonating: !!options.impersonating },
     JWT_SECRET,
-    { expiresIn: TOKEN_TTL }
+    { expiresIn: options.impersonating ? IMPERSONATION_TOKEN_TTL : TOKEN_TTL }
   );
 }
 
 /**
  * Middleware: exige um token válido no header "Authorization: Bearer <token>".
- * Em caso de sucesso, popula req.auth = { userId, companyId, role, isOwner }.
+ * Em caso de sucesso, popula req.auth = { userId, companyId, role, isOwner, impersonating }.
  * Toda rota de dados (storage) deve usar isso — é o que garante que uma
  * empresa nunca consiga ler/gravar dado de outra.
  */
@@ -44,7 +46,10 @@ export function requireAuth(req, res, next) {
   }
   try {
     const payload = jwt.verify(token, JWT_SECRET);
-    req.auth = { userId: payload.userId, companyId: payload.companyId, role: payload.role, isOwner: !!payload.isOwner };
+    req.auth = {
+      userId: payload.userId, companyId: payload.companyId, role: payload.role,
+      isOwner: !!payload.isOwner, impersonating: !!payload.impersonating,
+    };
     next();
   } catch (e) {
     return res.status(401).json({ error: "invalid_token" });

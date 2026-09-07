@@ -121,4 +121,16 @@ export async function initDb() {
     ALTER TABLE storage ADD CONSTRAINT storage_company_id_fkey
     FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
   `);
+
+  // Registro (auditoria) de toda vez que o dono da plataforma entra em modo
+  // suporte nos dados de alguma empresa — não é mostrado à empresa, mas
+  // fica guardado caso um dia seja preciso justificar um acesso.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS support_access_log (
+      id SERIAL PRIMARY KEY,
+      owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+      accessed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
 }
