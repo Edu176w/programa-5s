@@ -128,6 +128,15 @@ const STYLES = `
   font-family:var(--font-mono); font-size:16px; font-weight:700; letter-spacing:0.08em; background:var(--paper-2);
   border:1.5px dashed var(--line); border-radius:var(--radius-s); padding:8px 14px; color:var(--ink-on-paper);
 }
+.g5-platform-newco{
+  display:flex; align-items:flex-end; gap:12px; background:var(--paper-3); border:1px solid var(--line);
+  border-radius:var(--radius-m); padding:16px; margin-bottom:14px; box-shadow:var(--shadow-1);
+}
+.g5-platform-newco-success{
+  display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;
+  background:var(--bagaco-tint); border:1px solid var(--bagaco); border-radius:var(--radius-m);
+  padding:14px 16px; margin-bottom:14px; color:var(--ink-on-paper); font-size:13.5px;
+}
 
 .g5-tabbar{ background:var(--panel); border-bottom:1px solid var(--steel); overflow-x:auto; }
 .g5-tabbar-row{ display:flex; gap:2px; max-width:1360px; margin:0 auto; padding:0 12px; }
@@ -2128,18 +2137,49 @@ function PlatformView({ ownCompanyId, onEnterCompany }){
   const [companies, setCompanies] = useState(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [showForm, setShowForm] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState("");
+  const [justCreated, setJustCreated] = useState(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    apiFetch("/api/platform/companies")
+  function loadCompanies(){
+    return apiFetch("/api/platform/companies")
       .then(async (res) => {
         if (!res.ok) throw new Error("falhou");
         const json = await res.json();
-        if (!cancelled) setCompanies(json.companies);
+        setCompanies(json.companies);
       })
-      .catch(() => { if (!cancelled) setError("Não foi possível carregar as empresas."); });
-    return () => { cancelled = true; };
-  }, []);
+      .catch(() => setError("Não foi possível carregar as empresas."));
+  }
+
+  useEffect(() => { loadCompanies(); }, []);
+
+  async function createCompany(e){
+    e.preventDefault();
+    if (!newName.trim()) return;
+    setCreating(true); setCreateError("");
+    try {
+      const res = await apiFetch("/api/platform/companies", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newName.trim() }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "falhou");
+      setJustCreated(json.company);
+      setNewName(""); setShowForm(false);
+      await loadCompanies();
+    } catch (err){
+      setCreateError("Não foi possível criar a empresa. Tente outro nome.");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  function copyCode(code){
+    navigator.clipboard.writeText(code).catch(()=>{});
+  }
 
   function fmtDate(iso){
     if (!iso) return "—";
@@ -2154,7 +2194,31 @@ function PlatformView({ ownCompanyId, onEnterCompany }){
   return (
     <div>
       <SectionHeading eyebrow="Dono da plataforma" title="Empresas cadastradas"
-        desc="Todas as empresas que usam esta instalação — só você enxerga esta tela. Clique numa empresa sua para entrar nos dados dela." />
+        desc="Todas as empresas que usam esta instalação — só você enxerga esta tela. Clique numa empresa sua para entrar nos dados dela."
+        right={<button className="g5-btn g5-btn-primary" onClick={()=>{ setShowForm(s=>!s); setJustCreated(null); }}><Plus size={15}/> Nova Empresa</button>} />
+
+      {showForm && (
+        <form onSubmit={createCompany} className="g5-platform-newco">
+          <div className="g5-field" style={{ flex:1, marginBottom:0 }}>
+            <label className="g5-label">Nome da nova empresa</label>
+            <input className="g5-input" autoFocus value={newName} onChange={e=>setNewName(e.target.value)} placeholder="Ex.: Usina Trapiche" required />
+          </div>
+          <button className="g5-btn g5-btn-primary" type="submit" disabled={creating}>{creating ? "Criando…" : "Criar"}</button>
+          <button className="g5-btn g5-btn-outline" type="button" onClick={()=>setShowForm(false)}>Cancelar</button>
+        </form>
+      )}
+      {createError && <p className="g5-login-error">{createError}</p>}
+
+      {justCreated && (
+        <div className="g5-platform-newco-success">
+          <div><CheckCircle2 size={18}/> <b>{justCreated.name}</b> criada! Passe este código de convite pro cliente — a primeira pessoa a usá-lo vira admin da empresa automaticamente.</div>
+          <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+            <code className="g5-invite-code">{justCreated.invite_code}</code>
+            <button className="g5-btn g5-btn-outline" type="button" onClick={()=>copyCode(justCreated.invite_code)}><KeyRound size={14}/> Copiar</button>
+          </div>
+        </div>
+      )}
+
       {error && <p className="g5-login-error">{error}</p>}
       {notice && <p className="g5-help" style={{ background:"var(--paper-2)", border:"1px solid var(--line)", borderRadius:8, padding:"8px 12px" }}>{notice}</p>}
       {!companies && !error && <p className="g5-help">Carregando…</p>}
@@ -2176,6 +2240,7 @@ function PlatformView({ ownCompanyId, onEnterCompany }){
                   <td style={{ display:"flex", alignItems:"center", gap:8 }}>
                     {c.logo_url ? <img src={c.logo_url} alt="" style={{ width:24, height:24, borderRadius:6, objectFit:"contain", background:"#fff" }} /> : <Building2 size={16}/>}
                     {c.name}{c.id === ownCompanyId && <span className="g5-historico-badge" style={{ marginLeft:8 }}>Sua empresa</span>}
+                    {c.user_count === 0 && <span className="g5-historico-badge" style={{ marginLeft:8, background:"var(--bagaco)", color:"var(--ink)" }}>Aguardando ativação</span>}
                   </td>
                   <td>{c.user_count}</td>
                   <td>{fmtDate(c.created_at)}</td>
@@ -2196,21 +2261,21 @@ function AppHeader({ settings, syncStatus, activeTab, onSelectTab, cicloView, on
   const isHistorico = cicloView !== "4";
   const brandColor = (company && company.primary_color) || null;
   return (
-    <header className="g5-header" style={brandColor ? { "--bagaco": brandColor } : undefined}>
+    <header className="g5-header" style={!showOnlyPlatformTab && brandColor ? { "--bagaco": brandColor } : undefined}>
       <div className="g5-header-row">
         <div className="g5-brand">
-          {company && company.logo_url ? (
+          {!showOnlyPlatformTab && company && company.logo_url ? (
             <img src={company.logo_url} alt="" className="g5-brand-logo" />
           ) : (
             <div className="g5-brand-mark"><ShieldCheck size={22} strokeWidth={2.2}/></div>
           )}
           <div className="g5-brand-text">
-            <div className="g5-brand-title">{settings.programName || "Programa 5S"}</div>
-            <div className="g5-brand-sub">{settings.millName}</div>
+            <div className="g5-brand-title">{showOnlyPlatformTab ? "Programa 5S" : (settings.programName || "Programa 5S")}</div>
+            <div className="g5-brand-sub">{showOnlyPlatformTab ? "Painel da plataforma" : settings.millName}</div>
           </div>
         </div>
         <div className="g5-header-right">
-          <SyncIndicator status={syncStatus} />
+          {!showOnlyPlatformTab && <SyncIndicator status={syncStatus} />}
           {user && (
             <div className="g5-user-chip" title={user.email}>
               <span className="g5-user-name">{user.name}</span>

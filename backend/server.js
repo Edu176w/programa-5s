@@ -105,10 +105,16 @@ app.post("/api/auth/join", async (req, res) => {
       return res.status(409).json({ error: "email_in_use" });
     }
 
+    // Se ninguém da empresa ainda tem conta (caso comum quando o dono da
+    // plataforma cria a empresa e passa o código de convite pro cliente),
+    // a primeira pessoa a entrar já vira admin dela automaticamente.
+    const memberCountRes = await pool.query(`SELECT COUNT(*)::int AS n FROM users WHERE company_id = $1`, [companyId]);
+    const role = memberCountRes.rows[0].n === 0 ? "admin" : "member";
+
     const passwordHash = await hashPassword(password);
     const user = await pool.query(
-      `INSERT INTO users (company_id, email, password_hash, name, role) VALUES ($1,$2,$3,$4,'member') RETURNING id, company_id, role`,
-      [companyId, String(email).toLowerCase(), passwordHash, name]
+      `INSERT INTO users (company_id, email, password_hash, name, role) VALUES ($1,$2,$3,$4,$5) RETURNING id, company_id, role`,
+      [companyId, String(email).toLowerCase(), passwordHash, name, role]
     );
 
     const token = signToken(user.rows[0]);
@@ -170,7 +176,7 @@ app.get("/api/platform/companies", requireAuth, async (req, res) => {
     }
     const result = await pool.query(`
       SELECT c.id, c.slug, c.name, c.invite_code, c.logo_url, c.primary_color, c.created_at,
-        (SELECT COUNT(*) FROM users u WHERE u.company_id = c.id) AS user_count,
+        (SELECT COUNT(*)::int FROM users u WHERE u.company_id = c.id) AS user_count,
         (SELECT MAX(s.updated_at) FROM storage s WHERE s.company_id = c.id) AS last_activity_at
       FROM companies c
       ORDER BY c.created_at ASC
@@ -178,6 +184,34 @@ app.get("/api/platform/companies", requireAuth, async (req, res) => {
     res.json({ companies: result.rows });
   } catch (e) {
     console.error("GET /api/platform/companies failed:", e);
+    res.status(500).json({ error: "server_error" });
+  }
+});
+
+// Cria uma empresa nova SEM usuário ainda — o dono da plataforma passa o
+// código de convite gerado pro cliente, que cria a própria conta (e vira
+// admin automaticamente, por ser o primeiro usuário — ver /api/auth/join).
+app.post("/api/platform/companies", requireAuth, async (req, res) => {
+  try {
+    const ownerCheck = await pool.query(`SELECT is_owner FROM users WHERE id = $1`, [req.auth.userId]);
+    if (!ownerCheck.rows[0] || !ownerCheck.rows[0].is_owner) {
+      return res.status(403).json({ error: "forbidden" });
+    }
+    const { name } = req.body || {};
+    if (!name || !String(name).trim()) {
+      return res.status(400).json({ error: "missing_fields" });
+    }
+    let slug = slugify(name);
+    const slugTaken = await pool.query(`SELECT id FROM companies WHERE slug = $1`, [slug]);
+    if (slugTaken.rows.length > 0) slug = `${slug}-${Math.random().toString(36).slice(2, 6)}`;
+
+    const inserted = await pool.query(
+      `INSERT INTO companies (slug, name, invite_code) VALUES ($1, $2, $3) RETURNING id`,
+      [slug, String(name).trim(), generateInviteCode()]
+    );
+    res.json({ company: await companyPublicView(inserted.rows[0].id) });
+  } catch (e) {
+    console.error("POST /api/platform/companies failed:", e);
     res.status(500).json({ error: "server_error" });
   }
 });
