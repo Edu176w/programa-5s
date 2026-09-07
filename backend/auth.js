@@ -24,7 +24,7 @@ export async function verifyPassword(plain, hash) {
 
 export function signToken(user) {
   return jwt.sign(
-    { userId: user.id, companyId: user.company_id, role: user.role },
+    { userId: user.id, companyId: user.company_id, role: user.role, isOwner: !!user.is_owner },
     JWT_SECRET,
     { expiresIn: TOKEN_TTL }
   );
@@ -32,7 +32,7 @@ export function signToken(user) {
 
 /**
  * Middleware: exige um token válido no header "Authorization: Bearer <token>".
- * Em caso de sucesso, popula req.auth = { userId, companyId, role }.
+ * Em caso de sucesso, popula req.auth = { userId, companyId, role, isOwner }.
  * Toda rota de dados (storage) deve usar isso — é o que garante que uma
  * empresa nunca consiga ler/gravar dado de outra.
  */
@@ -44,9 +44,21 @@ export function requireAuth(req, res, next) {
   }
   try {
     const payload = jwt.verify(token, JWT_SECRET);
-    req.auth = { userId: payload.userId, companyId: payload.companyId, role: payload.role };
+    req.auth = { userId: payload.userId, companyId: payload.companyId, role: payload.role, isOwner: !!payload.isOwner };
     next();
   } catch (e) {
     return res.status(401).json({ error: "invalid_token" });
   }
+}
+
+/**
+ * Middleware adicional (usar depois de requireAuth): só deixa passar quem
+ * é "dono da plataforma" — a pessoa que vende/administra o produto pra
+ * várias empresas, não um admin comum de uma empresa cliente.
+ */
+export function requireOwner(req, res, next) {
+  if (!req.auth || !req.auth.isOwner) {
+    return res.status(403).json({ error: "forbidden" });
+  }
+  next();
 }

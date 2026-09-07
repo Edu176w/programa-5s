@@ -2119,6 +2119,72 @@ const TABS = [
   { id:"settings",    label:"Configurações", icon:SettingsIcon },
 ];
 
+/* ================================================================
+   PLATAFORMA — visão exclusiva do dono do produto: todas as empresas
+   cadastradas (nome, quantos usuários, quando entrou, última
+   atividade). Nunca mostra dados operacionais de nenhuma empresa.
+   ================================================================ */
+function PlatformView(){
+  const [companies, setCompanies] = useState(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch("/api/platform/companies")
+      .then(async (res) => {
+        if (!res.ok) throw new Error("falhou");
+        const json = await res.json();
+        if (!cancelled) setCompanies(json.companies);
+      })
+      .catch(() => { if (!cancelled) setError("Não foi possível carregar as empresas."); });
+    return () => { cancelled = true; };
+  }, []);
+
+  function fmtDate(iso){
+    if (!iso) return "—";
+    return new Date(iso).toLocaleDateString("pt-BR", { day:"2-digit", month:"short", year:"numeric" });
+  }
+
+  return (
+    <div>
+      <SectionHeading eyebrow="Dono da plataforma" title="Empresas cadastradas"
+        desc="Todas as empresas que usam esta instalação — só você enxerga esta tela." />
+      {error && <p className="g5-login-error">{error}</p>}
+      {!companies && !error && <p className="g5-help">Carregando…</p>}
+      {companies && (
+        <div className="g5-table-wrap">
+          <table className="g5-table">
+            <thead>
+              <tr>
+                <th>Empresa</th>
+                <th>Usuários</th>
+                <th>Criada em</th>
+                <th>Última atividade</th>
+                <th>Código de convite</th>
+              </tr>
+            </thead>
+            <tbody>
+              {companies.map(c => (
+                <tr key={c.id}>
+                  <td style={{ display:"flex", alignItems:"center", gap:8 }}>
+                    {c.logo_url ? <img src={c.logo_url} alt="" style={{ width:24, height:24, borderRadius:6, objectFit:"contain", background:"#fff" }} /> : <Building2 size={16}/>}
+                    {c.name}
+                  </td>
+                  <td>{c.user_count}</td>
+                  <td>{fmtDate(c.created_at)}</td>
+                  <td>{fmtDate(c.last_activity_at)}</td>
+                  <td><code className="g5-invite-code" style={{ fontSize:12.5, padding:"3px 8px" }}>{c.invite_code}</code></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {companies.length === 0 && <p className="g5-help">Nenhuma empresa cadastrada ainda.</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AppHeader({ settings, syncStatus, activeTab, onSelectTab, cicloView, onChangeCiclo, ciclosDisponiveis, company, user, onLogout }){
   const isHistorico = cicloView !== "4";
   const brandColor = (company && company.primary_color) || null;
@@ -2170,6 +2236,11 @@ function AppHeader({ settings, syncStatus, activeTab, onSelectTab, cicloView, on
               </button>
             );
           })}
+          {user && user.isOwner && (
+            <button className={classNames("g5-tab", activeTab==="platform" && "active")} onClick={()=>onSelectTab("platform")}>
+              <Building2 size={15} strokeWidth={2.2}/> Plataforma
+            </button>
+          )}
         </div>
       </nav>
     </header>
@@ -2477,6 +2548,9 @@ function App({ session, onUpdateCompany, onLogout }){
           <SettingsView settings={settings} onUpdateSettings={persistSettings} areas={areas} masterPlan={masterPlan}
             committee={committee} cronograma={cronograma} onImportAll={importAll} onResetAll={resetAll}
             company={company} user={user} onUpdateCompany={onUpdateCompany} onLogout={onLogout} />
+        )}
+        {activeTab === "platform" && user && user.isOwner && (
+          <PlatformView />
         )}
       </main>
       {toast && <Toast message={toast} onDone={()=>setToast(null)} />}

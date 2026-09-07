@@ -64,9 +64,19 @@ export async function initDb() {
       password_hash TEXT NOT NULL,
       name TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'member',
+      is_owner BOOLEAN NOT NULL DEFAULT false,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
   `);
+  // Migração: se a tabela "users" já existia de uma versão anterior sem
+  // "is_owner" (dono da plataforma, que enxerga todas as empresas).
+  const ownerCol = await pool.query(`
+    SELECT column_name FROM information_schema.columns
+    WHERE table_name = 'users' AND column_name = 'is_owner'
+  `);
+  if (ownerCol.rows.length === 0) {
+    await pool.query(`ALTER TABLE users ADD COLUMN is_owner BOOLEAN NOT NULL DEFAULT false;`);
+  }
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS storage (

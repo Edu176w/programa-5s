@@ -5,7 +5,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { pool, initDb, generateInviteCode } from "./db.js";
-import { hashPassword, verifyPassword, signToken, requireAuth } from "./auth.js";
+import { hashPassword, verifyPassword, signToken, requireAuth, requireOwner } from "./auth.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -141,13 +141,35 @@ app.post("/api/auth/login", async (req, res) => {
 
 app.get("/api/auth/me", requireAuth, async (req, res) => {
   try {
-    const userRes = await pool.query(`SELECT id, name, email, role FROM users WHERE id = $1`, [req.auth.userId]);
+    const userRes = await pool.query(`SELECT id, name, email, role, is_owner FROM users WHERE id = $1`, [req.auth.userId]);
     const user = userRes.rows[0];
     if (!user) return res.status(404).json({ error: "not_found" });
     const company = await companyPublicView(req.auth.companyId);
-    res.json({ user, company });
+    res.json({ user: { id:user.id, name:user.name, email:user.email, role:user.role, isOwner: user.is_owner }, company });
   } catch (e) {
     console.error("GET /api/auth/me failed:", e);
+    res.status(500).json({ error: "server_error" });
+  }
+});
+
+// ---------------------------------------------------------------
+// Painel do dono da plataforma — visão de todas as empresas
+// cadastradas (quem vende o produto, não um admin de uma empresa
+// cliente). Nunca expõe dados operacionais de nenhuma empresa, só
+// metadados de cadastro (nome, quantos usuários, quando foi criada).
+// ---------------------------------------------------------------
+app.get("/api/platform/companies", requireAuth, requireOwner, async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT c.id, c.slug, c.name, c.invite_code, c.logo_url, c.primary_color, c.created_at,
+        (SELECT COUNT(*) FROM users u WHERE u.company_id = c.id) AS user_count,
+        (SELECT MAX(s.updated_at) FROM storage s WHERE s.company_id = c.id) AS last_activity_at
+      FROM companies c
+      ORDER BY c.created_at ASC
+    `);
+    res.json({ companies: result.rows });
+  } catch (e) {
+    console.error("GET /api/platform/companies failed:", e);
     res.status(500).json({ error: "server_error" });
   }
 });
