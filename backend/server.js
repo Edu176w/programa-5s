@@ -158,8 +158,16 @@ app.get("/api/auth/me", requireAuth, async (req, res) => {
 // cliente). Nunca expõe dados operacionais de nenhuma empresa, só
 // metadados de cadastro (nome, quantos usuários, quando foi criada).
 // ---------------------------------------------------------------
-app.get("/api/platform/companies", requireAuth, requireOwner, async (req, res) => {
+app.get("/api/platform/companies", requireAuth, async (req, res) => {
   try {
+    // Verifica direto no banco (não confia só no token) se este usuário é
+    // dono da plataforma — assim uma promoção/remoção de acesso feita no
+    // banco vale na hora, mesmo que o token já emitido ainda não tenha sido
+    // renovado.
+    const ownerCheck = await pool.query(`SELECT is_owner FROM users WHERE id = $1`, [req.auth.userId]);
+    if (!ownerCheck.rows[0] || !ownerCheck.rows[0].is_owner) {
+      return res.status(403).json({ error: "forbidden" });
+    }
     const result = await pool.query(`
       SELECT c.id, c.slug, c.name, c.invite_code, c.logo_url, c.primary_color, c.created_at,
         (SELECT COUNT(*) FROM users u WHERE u.company_id = c.id) AS user_count,

@@ -2124,9 +2124,10 @@ const TABS = [
    cadastradas (nome, quantos usuários, quando entrou, última
    atividade). Nunca mostra dados operacionais de nenhuma empresa.
    ================================================================ */
-function PlatformView(){
+function PlatformView({ ownCompanyId, onEnterCompany }){
   const [companies, setCompanies] = useState(null);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -2145,11 +2146,17 @@ function PlatformView(){
     return new Date(iso).toLocaleDateString("pt-BR", { day:"2-digit", month:"short", year:"numeric" });
   }
 
+  function handleRowClick(c){
+    if (c.id === ownCompanyId) onEnterCompany();
+    else setNotice(`Ainda não é possível entrar nos dados de "${c.name}" por aqui — só é possível ver os metadados de cadastro.`);
+  }
+
   return (
     <div>
       <SectionHeading eyebrow="Dono da plataforma" title="Empresas cadastradas"
-        desc="Todas as empresas que usam esta instalação — só você enxerga esta tela." />
+        desc="Todas as empresas que usam esta instalação — só você enxerga esta tela. Clique numa empresa sua para entrar nos dados dela." />
       {error && <p className="g5-login-error">{error}</p>}
+      {notice && <p className="g5-help" style={{ background:"var(--paper-2)", border:"1px solid var(--line)", borderRadius:8, padding:"8px 12px" }}>{notice}</p>}
       {!companies && !error && <p className="g5-help">Carregando…</p>}
       {companies && (
         <div className="g5-table-wrap">
@@ -2165,10 +2172,10 @@ function PlatformView(){
             </thead>
             <tbody>
               {companies.map(c => (
-                <tr key={c.id}>
+                <tr key={c.id} className="clickable" onClick={()=>handleRowClick(c)}>
                   <td style={{ display:"flex", alignItems:"center", gap:8 }}>
                     {c.logo_url ? <img src={c.logo_url} alt="" style={{ width:24, height:24, borderRadius:6, objectFit:"contain", background:"#fff" }} /> : <Building2 size={16}/>}
-                    {c.name}
+                    {c.name}{c.id === ownCompanyId && <span className="g5-historico-badge" style={{ marginLeft:8 }}>Sua empresa</span>}
                   </td>
                   <td>{c.user_count}</td>
                   <td>{fmtDate(c.created_at)}</td>
@@ -2185,7 +2192,7 @@ function PlatformView(){
   );
 }
 
-function AppHeader({ settings, syncStatus, activeTab, onSelectTab, cicloView, onChangeCiclo, ciclosDisponiveis, company, user, onLogout }){
+function AppHeader({ settings, syncStatus, activeTab, onSelectTab, cicloView, onChangeCiclo, ciclosDisponiveis, company, user, onLogout, showOnlyPlatformTab }){
   const isHistorico = cicloView !== "4";
   const brandColor = (company && company.primary_color) || null;
   return (
@@ -2210,7 +2217,7 @@ function AppHeader({ settings, syncStatus, activeTab, onSelectTab, cicloView, on
               <button type="button" className="g5-user-logout" onClick={onLogout} title="Sair"><LogOut size={13}/></button>
             </div>
           )}
-          {ciclosDisponiveis && (
+          {ciclosDisponiveis && !showOnlyPlatformTab && (
             <div className="g5-ciclo-switch" title="Ver outro ciclo">
               {ciclosDisponiveis.map(c => (
                 <button
@@ -2222,24 +2229,34 @@ function AppHeader({ settings, syncStatus, activeTab, onSelectTab, cicloView, on
               ))}
             </div>
           )}
-          <span className="g5-cycle-chip"><span className="g5-cycle-dot" /><span className="g5-cycle-text">{settings.cycleLabel}{settings.cyclePeriod ? " · " + settings.cyclePeriod : ""}</span></span>
-          {isHistorico && <span className="g5-historico-badge">Histórico</span>}
+          {!showOnlyPlatformTab && (
+            <span className="g5-cycle-chip"><span className="g5-cycle-dot" /><span className="g5-cycle-text">{settings.cycleLabel}{settings.cyclePeriod ? " · " + settings.cyclePeriod : ""}</span></span>
+          )}
+          {isHistorico && !showOnlyPlatformTab && <span className="g5-historico-badge">Histórico</span>}
         </div>
       </div>
       <nav className="g5-tabbar" style={{ margin:"12px -20px -14px", background:"transparent", borderBottom:"none" }}>
         <div className="g5-tabbar-row" style={{ padding:0 }}>
-          {TABS.map(t => {
-            const Icon = t.icon;
-            return (
-              <button key={t.id} className={classNames("g5-tab", activeTab===t.id && "active")} onClick={()=>onSelectTab(t.id)}>
-                <Icon size={15} strokeWidth={2.2}/> {t.label}
-              </button>
-            );
-          })}
-          {user && user.isOwner && (
-            <button className={classNames("g5-tab", activeTab==="platform" && "active")} onClick={()=>onSelectTab("platform")}>
+          {showOnlyPlatformTab ? (
+            <button className={classNames("g5-tab", "active")} onClick={()=>onSelectTab("platform")}>
               <Building2 size={15} strokeWidth={2.2}/> Plataforma
             </button>
+          ) : (
+            <>
+              {user && user.isOwner && (
+                <button className={classNames("g5-tab", activeTab==="platform" && "active")} onClick={()=>onSelectTab("platform")}>
+                  <ArrowLeft size={15} strokeWidth={2.2}/> Plataforma
+                </button>
+              )}
+              {TABS.map(t => {
+                const Icon = t.icon;
+                return (
+                  <button key={t.id} className={classNames("g5-tab", activeTab===t.id && "active")} onClick={()=>onSelectTab(t.id)}>
+                    <Icon size={15} strokeWidth={2.2}/> {t.label}
+                  </button>
+                );
+              })}
+            </>
           )}
         </div>
       </nav>
@@ -2452,9 +2469,21 @@ function App({ session, onUpdateCompany, onLogout }){
     });
   }, [persistSettingsRaw, cicloView]);
 
-  const [activeTab, setActiveTab] = useState("dashboard");
+  const [activeTab, setActiveTab] = useState(() => (user && user.isOwner) ? "platform" : "dashboard");
+  const [ownerEnteredCompany, setOwnerEnteredCompany] = useState(false);
   const [selectedAreaId, setSelectedAreaId] = useState(null);
   const [toast, setToast] = useState(null);
+
+  const showOnlyPlatformTab = !!(user && user.isOwner && !ownerEnteredCompany);
+
+  function enterOwnCompany(){
+    setOwnerEnteredCompany(true);
+    setActiveTab("dashboard");
+  }
+  function backToPlatform(){
+    setOwnerEnteredCompany(false);
+    setActiveTab("platform");
+  }
 
   useEffect(() => {
     if (settings && settings.millName){
@@ -2523,7 +2552,7 @@ function App({ session, onUpdateCompany, onLogout }){
       <style>{STYLES}{STYLES_B}</style>
       <AppHeader settings={settings} syncStatus={overallStatus} activeTab={activeTab} onSelectTab={selectTab}
         cicloView={cicloView} onChangeCiclo={setCicloView} ciclosDisponiveis={CICLOS_DISPONIVEIS}
-        company={company} user={user} onLogout={onLogout} />
+        company={company} user={user} onLogout={onLogout} showOnlyPlatformTab={showOnlyPlatformTab} />
       <main className="g5-main">
         {activeTab === "dashboard" && (
           <DashboardView areas={areas} settings={settings} masterPlan={masterPlan} onUpdateAreas={persistAreas} onOpenArea={openArea} />
@@ -2550,7 +2579,7 @@ function App({ session, onUpdateCompany, onLogout }){
             company={company} user={user} onUpdateCompany={onUpdateCompany} onLogout={onLogout} />
         )}
         {activeTab === "platform" && user && user.isOwner && (
-          <PlatformView />
+          <PlatformView ownCompanyId={company.id} onEnterCompany={enterOwnCompany} />
         )}
       </main>
       {toast && <Toast message={toast} onDone={()=>setToast(null)} />}
