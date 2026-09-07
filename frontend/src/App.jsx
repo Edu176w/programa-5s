@@ -2551,10 +2551,12 @@ function App({ session, onUpdateCompany, onLogout }){
   }
 
   useEffect(() => {
-    if (settings && settings.millName){
+    if (showOnlyPlatformTab){
+      document.title = "Programa 5S · Plataforma";
+    } else if (settings && settings.millName){
       document.title = (settings.programName||"Programa 5S") + " · " + settings.millName;
     }
-  }, [settings]);
+  }, [settings, showOnlyPlatformTab]);
 
   const allLoaded = areas && masterPlan && committee && cronograma && settings;
   const overallStatus = [statusAreas, statusMP, statusCommittee, statusCronograma, statusSettings].includes("error")
