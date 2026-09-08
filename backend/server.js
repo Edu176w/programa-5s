@@ -223,6 +223,31 @@ app.post("/api/platform/companies", requireAuth, async (req, res) => {
   }
 });
 
+// Exclui uma empresa (e tudo dela — usuários, dados operacionais — via
+// ON DELETE CASCADE no banco). Nunca permite excluir a PRÓPRIA empresa do
+// dono, pra evitar se trancar fora ou apagar a Serra Grande sem querer.
+app.delete("/api/platform/companies/:id", requireAuth, async (req, res) => {
+  try {
+    const ownerRes = await pool.query(`SELECT id, company_id, is_owner FROM users WHERE id = $1`, [req.auth.userId]);
+    const ownerRow = ownerRes.rows[0];
+    if (!ownerRow || !ownerRow.is_owner) {
+      return res.status(403).json({ error: "forbidden" });
+    }
+    const companyId = Number(req.params.id);
+    if (companyId === ownerRow.company_id) {
+      return res.status(400).json({ error: "cannot_delete_own_company" });
+    }
+    const result = await pool.query(`DELETE FROM companies WHERE id = $1 RETURNING id`, [companyId]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "not_found" });
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("DELETE /api/platform/companies/:id failed:", e);
+    res.status(500).json({ error: "server_error" });
+  }
+});
+
 // ---------------------------------------------------------------
 // Donos da plataforma — "is_owner" é um atributo da CONTA, não da
 // empresa, então transferir/conceder isso não move ninguém de empresa
