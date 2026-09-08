@@ -2177,8 +2177,8 @@ function SettingsView({ settings, onUpdateSettings, areas, masterPlan, committee
    NAVEGAÇÃO / SHELL
    ================================================================ */
 const TABS = [
-  { id:"dashboard",   label:"Painel",        icon:LayoutDashboard },
   { id:"geral",       label:"Visão Geral",   icon:TrendingUp },
+  { id:"dashboard",   label:"Painel",        icon:LayoutDashboard },
   { id:"areas",       label:"Áreas",         icon:Factory },
   { id:"masterplan",  label:"Plano Geral",   icon:ListChecks },
   { id:"cronograma",  label:"Cronograma",    icon:CalendarRange },
@@ -2527,6 +2527,13 @@ function PainelGeralView({ areasByCycleNorm, settingsNorm, ciclosDisponiveis }){
   const evolucao = (latest && first && latest.mediaGeral!=null && first.mediaGeral!=null && perCycle.length>1)
     ? round1(latest.mediaGeral - first.mediaGeral) : null;
 
+  // Média geral de cada departamento, considerando todos os ciclos juntos
+  // (não só o ciclo em vista) — dá o panorama "desde sempre" por setor.
+  const departmentOverallData = departments.map(d => {
+    const vals = perCycle.map(c => c.porDepartamento[d]).filter(v=>v!=null);
+    return { departamento: d, media: vals.length ? round1(average(vals)) : 0, cor: deptMeta(d).color };
+  });
+
   return (
     <div>
       <SectionHeading eyebrow="Panorama" title="Painel Geral"
@@ -2557,6 +2564,41 @@ function PainelGeralView({ areasByCycleNorm, settingsNorm, ciclosDisponiveis }){
                   <Line type="monotone" dataKey="media" stroke="var(--cana)" strokeWidth={2.5} dot={{ r:5, fill:"var(--cana)" }} connectNulls />
                 </LineChart>
               </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className="g5-two-col" style={{ marginTop:20 }}>
+            <div className="g5-chart-card">
+              <div className="g5-chart-title">Média por Ciclo (barras)</div>
+              <div className="g5-chart-sub">Comparação direta entre os ciclos</div>
+              <div style={{ width:"100%", height:230 }}>
+                <ResponsiveContainer>
+                  <BarChart data={chartData} margin={{ top:6, right:10, left:-18, bottom:0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" vertical={false} />
+                    <XAxis dataKey="ciclo" tick={{ fontSize:11.5, fill:"var(--ink-soft)" }} axisLine={{ stroke:"var(--line)" }} tickLine={false} />
+                    <YAxis domain={[0,100]} tick={{ fontSize:11, fill:"var(--ink-soft)" }} axisLine={false} tickLine={false} />
+                    <RTooltip formatter={(v)=>[v,"Média"]} contentStyle={{ fontSize:12.5, borderRadius:8, border:"1px solid var(--line)" }} />
+                    <Bar dataKey="media" fill="var(--cana)" radius={[5,5,0,0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+            <div className="g5-chart-card">
+              <div className="g5-chart-title">Média Geral por Departamento</div>
+              <div className="g5-chart-sub">Considerando todos os ciclos juntos</div>
+              <div style={{ width:"100%", height:230 }}>
+                <ResponsiveContainer>
+                  <BarChart data={departmentOverallData} margin={{ top:6, right:10, left:-18, bottom:0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" vertical={false} />
+                    <XAxis dataKey="departamento" tick={{ fontSize:11.5, fill:"var(--ink-soft)" }} axisLine={{ stroke:"var(--line)" }} tickLine={false} />
+                    <YAxis domain={[0,100]} tick={{ fontSize:11, fill:"var(--ink-soft)" }} axisLine={false} tickLine={false} />
+                    <RTooltip formatter={(v)=>[v,"Média"]} contentStyle={{ fontSize:12.5, borderRadius:8, border:"1px solid var(--line)" }} />
+                    <Bar dataKey="media" radius={[5,5,0,0]}>
+                      {departmentOverallData.map((d,i)=>(<Cell key={i} fill={d.cor} />))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
             </div>
           </div>
 
