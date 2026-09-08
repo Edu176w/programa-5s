@@ -2521,7 +2521,7 @@ function PainelGeralView({ areasByCycleNorm, settingsNorm, ciclosDisponiveis }){
   }, [areasByCycleNorm, settingsNorm, ciclosDisponiveis, departments]);
 
   const hasAnyData = perCycle.some(c => c.mediaGeral != null);
-  const chartData = perCycle.map(c => ({ ciclo: c.label.replace(" Ciclo","º").replace("º Ciclo","º"), media: c.mediaGeral }));
+  const chartData = perCycle.map(c => ({ ciclo: c.label.replace(" Ciclo",""), media: c.mediaGeral }));
   const latest = perCycle[perCycle.length-1];
   const first = perCycle[0];
   const evolucao = (latest && first && latest.mediaGeral!=null && first.mediaGeral!=null && perCycle.length>1)
