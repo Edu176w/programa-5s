@@ -1854,12 +1854,13 @@ function CommitteeView({ committee, settings, onUpdate }){
 /* ================================================================
    CONFIGURAÇÕES
    ================================================================ */
-function SettingsView({ settings, onUpdateSettings, areas, masterPlan, committee, cronograma, onImportAll, onResetAll, company, user, onUpdateCompany, onLogout }){
+function SettingsView({ settings, onUpdateSettings, areas, masterPlan, committee, cronograma, onImportAll, onResetAll, company, user, onUpdateCompany, onLogout, cicloView, ciclosDisponiveis, onDeleteCycle }){
   const [local, setLocal] = useState(settings);
   const [newDept, setNewDept] = useState("");
   const [newRoundLabel, setNewRoundLabel] = useState("");
   const [newRoundPeriodo, setNewRoundPeriodo] = useState("");
   const [confirmReset, setConfirmReset] = useState(false);
+  const [confirmDeleteCycle, setConfirmDeleteCycle] = useState(false);
   const [importError, setImportError] = useState("");
   const [savedFlash, setSavedFlash] = useState(false);
   const fileRef = useRef(null);
@@ -2140,19 +2141,34 @@ function SettingsView({ settings, onUpdateSettings, areas, masterPlan, committee
       <div className="g5-settings-section">
         <h3>Zona de Risco</h3>
         <div className="g5-danger-zone">
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:14, flexWrap:"wrap" }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:14, flexWrap:"wrap", marginBottom: ciclosDisponiveis && ciclosDisponiveis.length > 1 ? 14 : 0 }}>
             <div>
               <div style={{ fontWeight:700, fontSize:14 }}>Limpar todos os dados desta empresa</div>
               <p style={{ fontSize:12.5, color:"var(--red-dark)", marginTop:2 }}>Apaga todas as áreas, PAD, comitê, cronograma e plano geral desta empresa, deixando tudo em branco. Não pode ser desfeito.</p>
             </div>
             <button className="g5-btn g5-btn-danger" onClick={()=>setConfirmReset(true)}><RotateCcw size={15}/> Limpar tudo</button>
           </div>
+          {ciclosDisponiveis && ciclosDisponiveis.length > 1 && (
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:14, flexWrap:"wrap", paddingTop:14, borderTop:"1px dashed var(--line)" }}>
+              <div>
+                <div style={{ fontWeight:700, fontSize:14 }}>Excluir o {cicloView}º Ciclo (o que você está vendo agora)</div>
+                <p style={{ fontSize:12.5, color:"var(--red-dark)", marginTop:2 }}>Apaga as áreas, PAD e notas de auditoria só deste ciclo. Os outros ciclos não são afetados. Não pode ser desfeito — útil se um ciclo foi criado sem querer.</p>
+              </div>
+              <button className="g5-btn g5-btn-danger" onClick={()=>setConfirmDeleteCycle(true)}><Trash2 size={15}/> Excluir {cicloView}º Ciclo</button>
+            </div>
+          )}
         </div>
       </div>
 
       {confirmReset && (
         <ConfirmDialog title="Limpar todos os dados?" message="Todas as áreas, itens do plano de ação, plano geral, comitê e cronograma desta empresa serão apagados e ficarão em branco. Esta ação não pode ser desfeita."
           confirmLabel="Limpar tudo" danger onCancel={()=>setConfirmReset(false)} onConfirm={()=>{ setConfirmReset(false); onResetAll(); }} />
+      )}
+      {confirmDeleteCycle && (
+        <ConfirmDialog title={`Excluir o ${cicloView}º Ciclo?`}
+          message={`As áreas, o PAD e as notas de auditoria do ${cicloView}º Ciclo serão apagados. Os outros ciclos continuam intactos. Esta ação não pode ser desfeita.`}
+          confirmLabel="Excluir ciclo" danger onCancel={()=>setConfirmDeleteCycle(false)}
+          onConfirm={()=>{ setConfirmDeleteCycle(false); onDeleteCycle(cicloView); }} />
       )}
     </div>
   );
@@ -2162,6 +2178,7 @@ function SettingsView({ settings, onUpdateSettings, areas, masterPlan, committee
    ================================================================ */
 const TABS = [
   { id:"dashboard",   label:"Painel",        icon:LayoutDashboard },
+  { id:"geral",       label:"Visão Geral",   icon:TrendingUp },
   { id:"areas",       label:"Áreas",         icon:Factory },
   { id:"masterplan",  label:"Plano Geral",   icon:ListChecks },
   { id:"cronograma",  label:"Cronograma",    icon:CalendarRange },
@@ -2468,6 +2485,131 @@ function PlatformView({ ownCompanyId, currentUserId, onEnterCompany, onEnterSupp
   );
 }
 
+/* ================================================================
+   PAINEL GERAL — panorama entre todos os ciclos que existem na
+   empresa (a Serra Grande já tem 4; uma empresa nova vai acumulando
+   conforme cria novos ciclos pelo "+"). Funciona igual pra qualquer
+   empresa, sempre a partir de "ciclosDisponiveis" (dinâmico).
+   ================================================================ */
+function PainelGeralView({ areasByCycleNorm, settingsNorm, ciclosDisponiveis }){
+  const departments = settingsNorm.departments || [];
+  const thresholds = settingsNorm.thresholds || { red:60, yellow:79 };
+
+  const perCycle = useMemo(() => {
+    return ciclosDisponiveis.map(c => {
+      const cicloDef = settingsNorm.ciclos[c.id] || { label: c.label + " Ciclo", period: "", rounds: [] };
+      const areasForCycle = (areasByCycleNorm && areasByCycleNorm[c.id]) || [];
+      const medias = areasForCycle.map(a => areaAverage(a));
+      const mediaGeral = average(medias.filter(v=>v!=null));
+      const openItems = areasForCycle.reduce((s,a)=>s+areaOpenItems(a),0);
+      const overdueItems = areasForCycle.reduce((s,a)=>s+areaOverdueItems(a),0);
+
+      const porDepartamento = {};
+      departments.forEach(d => {
+        const medsDept = areasForCycle.filter(a=>a.departamento===d).map(a=>areaAverage(a)).filter(v=>v!=null);
+        porDepartamento[d] = medsDept.length ? round1(average(medsDept)) : null;
+      });
+
+      return {
+        id: c.id, label: cicloDef.label || (c.label + " Ciclo"), period: cicloDef.period || "",
+        mediaGeral: mediaGeral!=null ? round1(mediaGeral) : null,
+        totalAreas: areasForCycle.length,
+        areasComNota: medias.filter(v=>v!=null).length,
+        openItems, overdueItems, porDepartamento,
+      };
+    });
+  }, [areasByCycleNorm, settingsNorm, ciclosDisponiveis, departments]);
+
+  const hasAnyData = perCycle.some(c => c.mediaGeral != null);
+  const chartData = perCycle.map(c => ({ ciclo: c.label.replace(" Ciclo","º").replace("º Ciclo","º"), media: c.mediaGeral }));
+  const latest = perCycle[perCycle.length-1];
+  const first = perCycle[0];
+  const evolucao = (latest && first && latest.mediaGeral!=null && first.mediaGeral!=null && perCycle.length>1)
+    ? round1(latest.mediaGeral - first.mediaGeral) : null;
+
+  return (
+    <div>
+      <SectionHeading eyebrow="Panorama" title="Painel Geral"
+        desc={`Evolução do Programa 5S ao longo ${perCycle.length>1 ? `dos ${perCycle.length} ciclos registrados` : "do ciclo registrado"}.`} />
+
+      <div className="g5-stat-grid">
+        <StatCard label="Ciclos Registrados" value={perCycle.length} color="var(--cana)" icon={CalendarRange} />
+        <StatCard label={`Média — ${latest ? latest.label : "—"}`} value={latest && latest.mediaGeral!=null ? latest.mediaGeral : "—"}
+          sub={latest && latest.mediaGeral!=null ? toneLabel(scoreTone(latest.mediaGeral, thresholds)) : "Sem dados"} color="var(--bagaco)" icon={BarChart3} />
+        <StatCard label="Evolução (1º → último ciclo)" value={evolucao==null ? "—" : (evolucao>0?"+":"")+evolucao}
+          sub={evolucao==null ? "Precisa de 2+ ciclos com nota" : (evolucao>=0 ? "Melhorou" : "Piorou")}
+          color={evolucao==null ? "var(--steel-soft-2)" : evolucao>=0 ? "var(--verde-forte, #4C7A3B)" : "var(--red)"} icon={TrendingUp} />
+      </div>
+
+      {!hasAnyData && <p className="g5-help" style={{ marginTop:16 }}>Ainda não há notas de auditoria registradas em nenhum ciclo — assim que lançar notas nas Áreas, o panorama aparece aqui.</p>}
+
+      {hasAnyData && (
+        <>
+          <div className="g5-chart-card" style={{ marginTop:20 }}>
+            <div className="g5-chart-title">Média Geral por Ciclo</div>
+            <div style={{ width:"100%", height:220 }}>
+              <ResponsiveContainer>
+                <LineChart data={chartData} margin={{ top:6, right:16, left:-16, bottom:0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" vertical={false} />
+                  <XAxis dataKey="ciclo" tick={{ fontSize:11.5, fill:"var(--ink-soft)" }} axisLine={{ stroke:"var(--line)" }} tickLine={false} />
+                  <YAxis domain={[0,100]} tick={{ fontSize:11, fill:"var(--ink-soft)" }} axisLine={false} tickLine={false} />
+                  <RTooltip contentStyle={{ fontSize:12.5, borderRadius:8, border:"1px solid var(--line)" }} />
+                  <Line type="monotone" dataKey="media" stroke="var(--cana)" strokeWidth={2.5} dot={{ r:5, fill:"var(--cana)" }} connectNulls />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className="g5-table-wrap" style={{ marginTop:20 }}>
+            <table className="g5-table">
+              <thead>
+                <tr>
+                  <th>Ciclo</th><th>Período</th><th>Média Geral</th><th>Áreas Avaliadas</th><th>Itens Abertos</th><th>Itens Atrasados</th>
+                </tr>
+              </thead>
+              <tbody>
+                {perCycle.map(c => (
+                  <tr key={c.id}>
+                    <td>{c.label}</td>
+                    <td>{c.period || "—"}</td>
+                    <td className="num-cell"><StampBadge score={c.mediaGeral} thresholds={thresholds} size="sm" /></td>
+                    <td className="num-cell">{c.areasComNota}/{c.totalAreas}</td>
+                    <td className="num-cell">{c.openItems}</td>
+                    <td className="num-cell">{c.overdueItems}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {departments.length > 0 && (
+            <div className="g5-table-wrap" style={{ marginTop:20 }}>
+              <table className="g5-table">
+                <thead>
+                  <tr>
+                    <th>Departamento</th>
+                    {perCycle.map(c => <th key={c.id} className="no-sort" style={{ textAlign:"center" }}>{c.label}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {departments.map(d => (
+                    <tr key={d}>
+                      <td>{d}</td>
+                      {perCycle.map(c => (
+                        <td key={c.id} className="num-cell">{c.porDepartamento[d]==null ? "—" : c.porDepartamento[d]}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 function AppHeader({ settings, syncStatus, activeTab, onSelectTab, cicloView, onChangeCiclo, ciclosDisponiveis, onAddCycle, company, user, onLogout, showOnlyPlatformTab, impersonating, onExitSupport }){
   const isHistorico = cicloView !== "4";
   const brandColor = (company && company.primary_color) || null;
@@ -2713,12 +2855,13 @@ function App({ session, onUpdateCompany, onLogout }){
   // continua enxergando as mesmas formas de sempre (array de áreas com
   // itens/auditorias, e settings.cycleLabel/cyclePeriod/rounds), sem
   // precisar saber quantos ciclos existem por trás.
-  const areas = areasByCycle ? (normalizeAreasByCycle(areasByCycle)[cicloView] || []) : null;
-  const settings = settingsRaw ? (() => {
-    const norm = normalizeSettingsRaw(settingsRaw);
-    const ativo = norm.ciclos[cicloView] || norm.ciclos[norm.cicloAtual] || Object.values(norm.ciclos)[0] || { label:"", period:"", rounds:[] };
+  const areasByCycleNorm = areasByCycle ? normalizeAreasByCycle(areasByCycle) : null;
+  const settingsNorm = settingsRaw ? normalizeSettingsRaw(settingsRaw) : null;
+  const areas = areasByCycleNorm ? (areasByCycleNorm[cicloView] || []) : null;
+  const settings = settingsNorm ? (() => {
+    const ativo = settingsNorm.ciclos[cicloView] || settingsNorm.ciclos[settingsNorm.cicloAtual] || Object.values(settingsNorm.ciclos)[0] || { label:"", period:"", rounds:[] };
     return {
-      ...norm,
+      ...settingsNorm,
       cycleLabel: ativo.label,
       cyclePeriod: ativo.period,
       rounds: ativo.rounds,
@@ -2727,8 +2870,8 @@ function App({ session, onUpdateCompany, onLogout }){
 
   // Lista de ciclos que realmente existem nesta empresa (1 pra uma empresa
   // nova, podendo crescer conforme o botão "+" é usado), na ordem certa.
-  const ciclosDisponiveis = settingsRaw
-    ? Object.keys(normalizeSettingsRaw(settingsRaw).ciclos)
+  const ciclosDisponiveis = settingsNorm
+    ? Object.keys(settingsNorm.ciclos)
         .sort((a, b) => Number(a) - Number(b))
         .map(id => ({ id, label: id + "º" }))
     : [];
@@ -2769,6 +2912,33 @@ function App({ session, onUpdateCompany, onLogout }){
     });
     setCicloView(nextId);
     setToast(`${nextId}º Ciclo criado`);
+  }
+
+  function deleteCycle(cycleId){
+    if (ciclosDisponiveis.length <= 1) return; // nunca deixa a empresa sem nenhum ciclo
+    const remainingIds = ciclosDisponiveis.map(c => c.id).filter(id => id !== cycleId);
+    const fallbackId = (settingsNorm.cicloAtual !== cycleId && remainingIds.includes(settingsNorm.cicloAtual))
+      ? settingsNorm.cicloAtual
+      : remainingIds[remainingIds.length - 1];
+
+    persistSettingsRaw(prev => {
+      const norm = normalizeSettingsRaw(prev);
+      const restCiclos = { ...norm.ciclos };
+      delete restCiclos[cycleId];
+      return {
+        ...norm,
+        cicloAtual: norm.cicloAtual === cycleId ? fallbackId : norm.cicloAtual,
+        ciclos: restCiclos,
+      };
+    });
+    persistAreasByCycle(prev => {
+      const norm = normalizeAreasByCycle(prev) || {};
+      const rest = { ...norm };
+      delete rest[cycleId];
+      return rest;
+    });
+    if (cicloView === cycleId) setCicloView(fallbackId);
+    setToast(`${cycleId}º Ciclo excluído`);
   }
 
   const persistAreas = useCallback((updater) => {
@@ -2916,6 +3086,9 @@ function App({ session, onUpdateCompany, onLogout }){
         {activeTab === "dashboard" && (
           <DashboardView areas={areas} settings={settings} masterPlan={masterPlan} onUpdateAreas={persistAreas} onOpenArea={openArea} />
         )}
+        {activeTab === "geral" && (
+          <PainelGeralView areasByCycleNorm={areasByCycleNorm} settingsNorm={settingsNorm} ciclosDisponiveis={ciclosDisponiveis} />
+        )}
         {activeTab === "areas" && (
           selectedArea ? (
             <AreaDetailView area={selectedArea} settings={settings} onUpdateArea={updateArea} onDeleteArea={deleteArea} onBack={()=>setSelectedAreaId(null)} />
@@ -2935,7 +3108,8 @@ function App({ session, onUpdateCompany, onLogout }){
         {activeTab === "settings" && (
           <SettingsView settings={settings} onUpdateSettings={persistSettings} areas={areas} masterPlan={masterPlan}
             committee={committee} cronograma={cronograma} onImportAll={importAll} onResetAll={resetAll}
-            company={company} user={user} onUpdateCompany={onUpdateCompany} onLogout={onLogout} />
+            company={company} user={user} onUpdateCompany={onUpdateCompany} onLogout={onLogout}
+            cicloView={cicloView} ciclosDisponiveis={ciclosDisponiveis} onDeleteCycle={deleteCycle} />
         )}
         {activeTab === "platform" && user && user.isOwner && (
           <PlatformView ownCompanyId={company.id} currentUserId={user.id} onEnterCompany={enterOwnCompany} onEnterSupport={enterSupportMode} />
