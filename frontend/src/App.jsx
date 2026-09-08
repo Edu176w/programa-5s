@@ -77,10 +77,13 @@ const STYLES = `
 .g5-header-right{ display:flex; align-items:center; gap:10px; flex:none; min-width:0; }
 .g5-cycle-chip{
   font-family:var(--font-mono); font-size:11.5px; color:var(--paper-2); background:var(--panel-3);
-  border:1px solid var(--steel); padding:7px 12px; border-radius:20px; display:flex; align-items:center; gap:7px;
+  border:1px solid var(--steel); padding:6px 14px; border-radius:14px; display:flex; align-items:center; gap:8px;
   white-space:nowrap; min-width:0;
 }
 .g5-cycle-dot{ width:7px; height:7px; border-radius:50%; background:var(--green); box-shadow:0 0 0 3px rgba(63,122,70,0.28); flex:none; }
+.g5-cycle-textcol{ display:flex; flex-direction:column; line-height:1.25; overflow:hidden; min-width:0; }
+.g5-cycle-name{ font-weight:700; color:#fff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.g5-cycle-period{ font-size:10px; color:var(--steel-soft); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .g5-cycle-text{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
 .g5-sync{ display:flex; align-items:center; gap:6px; font-size:11px; color:var(--steel-soft); font-family:var(--font-mono); }
 .g5-ciclo-switch{ display:flex; align-items:center; gap:2px; background:var(--panel-3); border:1px solid var(--steel); border-radius:20px; padding:3px; flex:none; }
@@ -166,9 +169,9 @@ const STYLES = `
 
 /* ---------- Generic building blocks ---------- */
 .g5-page-head{ display:flex; align-items:flex-end; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:18px; }
-.g5-page-title{ font-size:30px; color:var(--ink-on-paper); text-transform:uppercase; }
+.g5-page-title{ font-size:30px; color:var(--ink-on-paper); }
 .g5-page-desc{ font-family:var(--font-body); font-weight:500; font-size:13.5px; color:var(--ink-soft); margin-top:4px; }
-.g5-eyebrow{ font-family:var(--font-mono); font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color:var(--bagaco-dark); font-weight:600; margin-bottom:2px; display:block; }
+.g5-eyebrow{ font-family:var(--font-mono); font-size:12.5px; color:var(--bagaco-dark); font-weight:600; margin-bottom:2px; display:block; }
 
 .g5-btn{
   display:inline-flex; align-items:center; justify-content:center; gap:7px; border-radius:var(--radius-s);
@@ -290,7 +293,7 @@ const STYLES_B = `
 .g5-modal{ background:var(--paper-3); border-radius:var(--radius-l); width:100%; max-width:640px; box-shadow:var(--shadow-3); margin:auto; border:1px solid var(--line); animation:g5pop .16s ease; }
 @keyframes g5pop{ from{ opacity:0; transform:translateY(8px) scale(0.98);} to{ opacity:1; transform:none; } }
 .g5-modal-head{ display:flex; align-items:center; justify-content:space-between; padding:18px 20px; border-bottom:1px solid var(--line); }
-.g5-modal-title{ font-size:19px; text-transform:uppercase; }
+.g5-modal-title{ font-size:19px; }
 .g5-modal-body{ padding:20px; max-height:70vh; overflow-y:auto; }
 .g5-modal-foot{ display:flex; justify-content:flex-end; gap:10px; padding:16px 20px; border-top:1px solid var(--line); background:var(--paper-2); border-radius:0 0 var(--radius-l) var(--radius-l); }
 .g5-confirm-icon{ width:44px; height:44px; border-radius:50%; display:flex; align-items:center; justify-content:center; background:var(--red-tint); color:var(--red-dark); flex:none; }
@@ -298,7 +301,7 @@ const STYLES_B = `
 /* ---------- Area cards ---------- */
 .g5-dept-section{ margin-bottom:26px; }
 .g5-dept-head{ display:flex; align-items:center; gap:10px; margin-bottom:12px; padding-bottom:8px; border-bottom:2px solid var(--ink); }
-.g5-dept-head h3{ font-size:19px; text-transform:uppercase; }
+.g5-dept-head h3{ font-size:19px; }
 .g5-dept-count{ font-family:var(--font-mono); font-size:11.5px; color:var(--ink-soft); background:var(--paper-2); padding:2px 9px; border-radius:10px; }
 .g5-area-grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(240px,1fr)); gap:12px; }
 .g5-area-card{
@@ -308,7 +311,7 @@ const STYLES_B = `
 }
 .g5-area-card:hover{ box-shadow:var(--shadow-2); transform:translateY(-2px); border-color:var(--steel-soft-2); }
 .g5-area-card-top{ display:flex; align-items:flex-start; justify-content:space-between; gap:8px; }
-.g5-area-card-name{ font-family:var(--font-display); font-size:17px; font-weight:800; line-height:1.15; color:var(--ink-on-paper); text-transform:uppercase; }
+.g5-area-card-name{ font-family:var(--font-display); font-size:17px; font-weight:800; line-height:1.15; color:var(--ink-on-paper); }
 .g5-area-card-leader{ font-size:12px; color:var(--ink-soft); display:flex; align-items:center; gap:5px; }
 .g5-area-card-foot{ display:flex; align-items:center; justify-content:space-between; margin-top:auto; padding-top:8px; border-top:1px dashed var(--line); }
 .g5-open-count{ font-size:11.5px; font-weight:700; color:var(--ink-soft); display:flex; align-items:center; gap:5px; }
@@ -333,7 +336,7 @@ const STYLES_B = `
 /* ---------- Misc ---------- */
 .g5-empty{ text-align:center; padding:50px 20px; color:var(--ink-soft); }
 .g5-empty svg{ color:var(--steel-soft-2); margin-bottom:10px; }
-.g5-empty h4{ font-size:17px; text-transform:uppercase; color:var(--ink-on-paper); margin-bottom:4px; }
+.g5-empty h4{ font-size:17px; color:var(--ink-on-paper); margin-bottom:4px; }
 .g5-empty p{ font-size:13px; max-width:360px; margin:0 auto; }
 
 .g5-loading-screen{ min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; background:var(--ink); color:var(--paper); }
@@ -346,7 +349,7 @@ const STYLES_B = `
 .g5-back-link:hover{ color:var(--ink-on-paper); }
 
 .g5-chart-card{ background:var(--paper-3); border:1px solid var(--line); border-radius:var(--radius-m); padding:18px; box-shadow:var(--shadow-1); min-width:0; }
-.g5-chart-title{ font-size:15px; text-transform:uppercase; margin-bottom:2px; }
+.g5-chart-title{ font-size:15px; margin-bottom:2px; }
 .g5-chart-sub{ font-size:12px; color:var(--ink-soft); margin-bottom:12px; }
 
 .g5-two-col{ display:grid; grid-template-columns:1.3fr 1fr; gap:16px; min-width:0; }
@@ -355,7 +358,7 @@ const STYLES_B = `
 
 .g5-detail-header{ background:linear-gradient(135deg,var(--panel),var(--ink) 120%); border-radius:var(--radius-l); padding:20px 22px; color:#fff; display:flex; align-items:center; gap:18px; flex-wrap:wrap; margin-bottom:18px; box-shadow:var(--shadow-2); }
 .g5-detail-header-info{ flex:1; min-width:220px; }
-.g5-detail-header h2{ font-size:26px; text-transform:uppercase; color:#fff; }
+.g5-detail-header h2{ font-size:26px; color:#fff; }
 .g5-detail-header-meta{ display:flex; gap:16px; flex-wrap:wrap; margin-top:8px; font-size:12.5px; color:var(--steel-soft); }
 .g5-detail-header-meta b{ color:#fff; font-weight:700; }
 
@@ -370,7 +373,7 @@ const STYLES_B = `
 
 .g5-phase{ margin-bottom:16px; }
 .g5-phase-title{ display:flex; align-items:center; gap:10px; margin-bottom:10px; }
-.g5-phase-title h3{ font-size:16.5px; text-transform:uppercase; }
+.g5-phase-title h3{ font-size:16.5px; }
 .g5-phase-num{ width:26px; height:26px; border-radius:50%; background:var(--ink); color:#fff; display:flex; align-items:center; justify-content:center; font-family:var(--font-mono); font-size:12px; font-weight:700; flex:none; }
 .g5-task-row{ display:flex; align-items:center; gap:12px; padding:10px 14px; background:var(--paper-3); border:1px solid var(--line); border-radius:var(--radius-s); margin-bottom:6px; flex-wrap:wrap; }
 .g5-task-name{ flex:1; min-width:200px; font-weight:600; font-size:13.5px; }
@@ -378,7 +381,7 @@ const STYLES_B = `
 
 .g5-danger-zone{ border:1.5px dashed var(--red); background:var(--red-tint); border-radius:var(--radius-m); padding:16px 18px; }
 .g5-settings-section{ margin-bottom:24px; }
-.g5-settings-section h3{ font-size:16px; text-transform:uppercase; margin-bottom:12px; padding-bottom:8px; border-bottom:1px solid var(--line); }
+.g5-settings-section h3{ font-size:16px; margin-bottom:12px; padding-bottom:8px; border-bottom:1px solid var(--line); }
 .g5-tag-row{ display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
 .g5-tag-editable{ display:flex; align-items:center; gap:6px; background:var(--paper-2); border:1px solid var(--line); border-radius:20px; padding:5px 6px 5px 12px; font-size:12.5px; font-weight:600; }
 .g5-tag-editable button{ background:var(--paper-3); border:none; border-radius:50%; width:20px; height:20px; display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--ink-soft); }
@@ -941,16 +944,16 @@ function DashboardView({ areas, settings, masterPlan, onUpdateAreas, onOpenArea 
   return (
     <div>
       <SectionHeading
-        eyebrow={settings.cycleLabel + " · " + settings.cyclePeriod}
-        title="Painel Geral"
-        desc={"Visão consolidada do Programa 5S — " + settings.millName}
+        eyebrow={settings.cycleLabel}
+        title="Painel"
+        desc={settings.cyclePeriod ? settings.cyclePeriod + " — " + settings.millName : settings.millName}
       />
 
       <div className="g5-stat-grid">
         <StatCard label="Nota Média Geral" value={overallAvg==null ? "—" : round1(overallAvg)} color="var(--cana)" icon={BarChart3}
           sub={overallAvg==null ? "Ainda sem auditorias lançadas" : toneLabel(scoreTone(overallAvg, thresholds))} />
         <StatCard label="Áreas no Padrão" value={toneCounts.green + " / " + areas.length} color="var(--green)" icon={ShieldCheck}
-          sub={toneCounts.amber+" em atenção · "+toneCounts.red+" críticas"} />
+          sub={toneCounts.amber+" em atenção, "+toneCounts.red+" críticas"} />
         <StatCard label="Ações Abertas (PAD)" value={totalOpenItems} color="var(--bagaco)" icon={ClipboardList}
           sub={totalOverdue > 0 ? totalOverdue + " com prazo vencido" : "Nenhuma em atraso"} />
         <StatCard label="Plano Geral Concluído" value={mpClosure==null ? "—" : round1(mpClosure)+"%"} color="var(--cana-dark)" icon={ListChecks}
@@ -2037,7 +2040,7 @@ function SettingsView({ settings, onUpdateSettings, areas, masterPlan, committee
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:12 }}>
           <div>
             <div style={{ fontWeight:700, fontSize:14 }}>{user && user.name}</div>
-            <div className="g5-help">{user && user.email} · {isAdmin ? "Administrador" : "Membro"} de {company && company.name}</div>
+            <div className="g5-help">{isAdmin ? "Administrador" : "Membro"} de {company && company.name}, {user && user.email}</div>
           </div>
           <button className="g5-btn g5-btn-outline" onClick={onLogout}><LogOut size={14}/> Sair da conta</button>
         </div>
@@ -2527,11 +2530,13 @@ function PainelGeralView({ areasByCycleNorm, settingsNorm, ciclosDisponiveis }){
   const evolucao = (latest && first && latest.mediaGeral!=null && first.mediaGeral!=null && perCycle.length>1)
     ? round1(latest.mediaGeral - first.mediaGeral) : null;
 
-  // Média geral de cada departamento, considerando todos os ciclos juntos
-  // (não só o ciclo em vista) — dá o panorama "desde sempre" por setor.
-  const departmentOverallData = departments.map(d => {
-    const vals = perCycle.map(c => c.porDepartamento[d]).filter(v=>v!=null);
-    return { departamento: d, media: vals.length ? round1(average(vals)) : 0, cor: deptMeta(d).color };
+  // Uma linha por ciclo, uma coluna por departamento — dá pra ver, por
+  // exemplo, quanto foi a média do Industrial no 1º Ciclo vs no 2º, lado a
+  // lado com os outros departamentos no gráfico agrupado abaixo.
+  const groupedChartData = perCycle.map(c => {
+    const row = { ciclo: c.label.replace(" Ciclo","") };
+    departments.forEach(d => { row[d] = c.porDepartamento[d]; });
+    return row;
   });
 
   return (
@@ -2567,38 +2572,22 @@ function PainelGeralView({ areasByCycleNorm, settingsNorm, ciclosDisponiveis }){
             </div>
           </div>
 
-          <div className="g5-two-col" style={{ marginTop:20 }}>
-            <div className="g5-chart-card">
-              <div className="g5-chart-title">Média por Ciclo (barras)</div>
-              <div className="g5-chart-sub">Comparação direta entre os ciclos</div>
-              <div style={{ width:"100%", height:230 }}>
-                <ResponsiveContainer>
-                  <BarChart data={chartData} margin={{ top:6, right:10, left:-18, bottom:0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" vertical={false} />
-                    <XAxis dataKey="ciclo" tick={{ fontSize:11.5, fill:"var(--ink-soft)" }} axisLine={{ stroke:"var(--line)" }} tickLine={false} />
-                    <YAxis domain={[0,100]} tick={{ fontSize:11, fill:"var(--ink-soft)" }} axisLine={false} tickLine={false} />
-                    <RTooltip formatter={(v)=>[v,"Média"]} contentStyle={{ fontSize:12.5, borderRadius:8, border:"1px solid var(--line)" }} />
-                    <Bar dataKey="media" fill="var(--cana)" radius={[5,5,0,0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-            <div className="g5-chart-card">
-              <div className="g5-chart-title">Média Geral por Departamento</div>
-              <div className="g5-chart-sub">Considerando todos os ciclos juntos</div>
-              <div style={{ width:"100%", height:230 }}>
-                <ResponsiveContainer>
-                  <BarChart data={departmentOverallData} margin={{ top:6, right:10, left:-18, bottom:0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" vertical={false} />
-                    <XAxis dataKey="departamento" tick={{ fontSize:11.5, fill:"var(--ink-soft)" }} axisLine={{ stroke:"var(--line)" }} tickLine={false} />
-                    <YAxis domain={[0,100]} tick={{ fontSize:11, fill:"var(--ink-soft)" }} axisLine={false} tickLine={false} />
-                    <RTooltip formatter={(v)=>[v,"Média"]} contentStyle={{ fontSize:12.5, borderRadius:8, border:"1px solid var(--line)" }} />
-                    <Bar dataKey="media" radius={[5,5,0,0]}>
-                      {departmentOverallData.map((d,i)=>(<Cell key={i} fill={d.cor} />))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
+          <div className="g5-chart-card" style={{ marginTop:20 }}>
+            <div className="g5-chart-title">Média por Ciclo e Departamento</div>
+            <div className="g5-chart-sub">Ex.: Industrial no 1º Ciclo foi {groupedChartData[0] && departments[0] ? (groupedChartData[0][departments[0]] ?? "—") : "—"}, comparado ciclo a ciclo</div>
+            <div style={{ width:"100%", height:280 }}>
+              <ResponsiveContainer>
+                <BarChart data={groupedChartData} margin={{ top:6, right:10, left:-18, bottom:0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" vertical={false} />
+                  <XAxis dataKey="ciclo" tick={{ fontSize:11.5, fill:"var(--ink-soft)" }} axisLine={{ stroke:"var(--line)" }} tickLine={false} />
+                  <YAxis domain={[0,100]} tick={{ fontSize:11, fill:"var(--ink-soft)" }} axisLine={false} tickLine={false} />
+                  <RTooltip contentStyle={{ fontSize:12.5, borderRadius:8, border:"1px solid var(--line)" }} />
+                  <Legend wrapperStyle={{ fontSize:12.5 }} />
+                  {departments.map(d => (
+                    <Bar key={d} dataKey={d} name={d} fill={deptMeta(d).color} radius={[4,4,0,0]} />
+                  ))}
+                </BarChart>
+              </ResponsiveContainer>
             </div>
           </div>
 
@@ -2701,7 +2690,13 @@ function AppHeader({ settings, syncStatus, activeTab, onSelectTab, cicloView, on
             </div>
           )}
           {!showOnlyPlatformTab && (
-            <span className="g5-cycle-chip"><span className="g5-cycle-dot" /><span className="g5-cycle-text">{settings.cycleLabel}{settings.cyclePeriod ? " · " + settings.cyclePeriod : ""}</span></span>
+            <span className="g5-cycle-chip">
+              <span className="g5-cycle-dot" />
+              <span className="g5-cycle-textcol">
+                <span className="g5-cycle-name">{settings.cycleLabel}</span>
+                {settings.cyclePeriod && <span className="g5-cycle-period">{settings.cyclePeriod}</span>}
+              </span>
+            </span>
           )}
           {isHistorico && !showOnlyPlatformTab && <span className="g5-historico-badge">Histórico</span>}
         </div>
@@ -2944,11 +2939,16 @@ function App({ session, onUpdateCompany, onLogout }){
     });
     persistAreasByCycle(prev => {
       const prevNorm = normalizeAreasByCycle(prev) || {};
-      // O novo ciclo herda a mesma lista de áreas (nome/departamento/líder),
-      // mas com PAD e notas zerados — pronto pra preencher do zero.
+      // O novo ciclo herda a mesma lista de áreas (nome/departamento/líder)
+      // E o PAD (itens) do ciclo anterior — ações que ainda não foram
+      // resolvidas normalmente continuam valendo pro próximo ciclo, então
+      // isso evita ter que recadastrar tudo de novo. Só as notas de
+      // auditoria (que são específicas de cada rodada) começam zeradas.
       const baseAreas = (prevNorm[lastId] || []).map(a => ({
         id: a.id, nome: a.nome, departamento: a.departamento, lider: a.lider, auditor: a.auditor,
-        dataFoto: null, itens: [], auditorias: {},
+        dataFoto: null,
+        itens: (a.itens || []).map(item => ({ ...item, prazo: item.prazo ? { ...item.prazo } : item.prazo })),
+        auditorias: {},
       }));
       return { ...prevNorm, [nextId]: baseAreas };
     });
