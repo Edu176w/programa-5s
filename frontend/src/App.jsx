@@ -90,6 +90,8 @@ const STYLES = `
 }
 .g5-ciclo-switch-btn:hover{ color:#fff; }
 .g5-ciclo-switch-btn.active{ background:var(--bagaco); color:var(--ink); }
+.g5-ciclo-switch-add{ padding:5px 7px; opacity:0.75; }
+.g5-ciclo-switch-add:hover{ opacity:1; }
 .g5-historico-badge{
   font-family:var(--font-mono); font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em;
   color:#fff; background:var(--steel-soft-2); padding:5px 10px; border-radius:20px; flex:none; white-space:nowrap;
@@ -404,7 +406,7 @@ const SEED_MASTERPLAN = [{"item":1,"acao":"Realizar apresentação do Modelo do 
    e não passam mais por este "seed"). Uma empresa nova nunca deve
    herdar áreas, comitê, cronograma ou plano de ação de outra.
    ---------------------------------------------------------------- */
-const EMPTY_AREAS_BY_CYCLE = { "1": [], "2": [], "3": [], "4": [] };
+const EMPTY_AREAS_BY_CYCLE = { "1": [] };
 const EMPTY_MASTERPLAN = [];
 const EMPTY_COMMITTEE = [];
 const EMPTY_CRONOGRAMA = [];
@@ -414,12 +416,9 @@ const EMPTY_SETTINGS = {
   thresholds: { red: 60, yellow: 79 },
   departments: [],
   developedNote: "",
-  cicloAtual: "4",
+  cicloAtual: "1",
   ciclos: {
     "1": { label: "1º Ciclo", period: "", rounds: [] },
-    "2": { label: "2º Ciclo", period: "", rounds: [] },
-    "3": { label: "3º Ciclo", period: "", rounds: [] },
-    "4": { label: "4º Ciclo", period: "", rounds: [] },
   },
 };
 const DEPARTMENTS_META = {
@@ -2469,7 +2468,7 @@ function PlatformView({ ownCompanyId, currentUserId, onEnterCompany, onEnterSupp
   );
 }
 
-function AppHeader({ settings, syncStatus, activeTab, onSelectTab, cicloView, onChangeCiclo, ciclosDisponiveis, company, user, onLogout, showOnlyPlatformTab, impersonating, onExitSupport }){
+function AppHeader({ settings, syncStatus, activeTab, onSelectTab, cicloView, onChangeCiclo, ciclosDisponiveis, onAddCycle, company, user, onLogout, showOnlyPlatformTab, impersonating, onExitSupport }){
   const isHistorico = cicloView !== "4";
   const brandColor = (company && company.primary_color) || null;
   return (
@@ -2500,7 +2499,7 @@ function AppHeader({ settings, syncStatus, activeTab, onSelectTab, cicloView, on
               <button type="button" className="g5-user-logout" onClick={onLogout} title="Sair"><LogOut size={13}/></button>
             </div>
           )}
-          {ciclosDisponiveis && !showOnlyPlatformTab && (
+          {ciclosDisponiveis && ciclosDisponiveis.length > 0 && !showOnlyPlatformTab && (
             <div className="g5-ciclo-switch" title="Ver outro ciclo">
               {ciclosDisponiveis.map(c => (
                 <button
@@ -2510,6 +2509,11 @@ function AppHeader({ settings, syncStatus, activeTab, onSelectTab, cicloView, on
                   onClick={() => onChangeCiclo(c.id)}
                 >{c.label}</button>
               ))}
+              {onAddCycle && (
+                <button type="button" className="g5-ciclo-switch-btn g5-ciclo-switch-add" title="Adicionar novo ciclo" onClick={onAddCycle}>
+                  <Plus size={12} strokeWidth={3}/>
+                </button>
+              )}
             </div>
           )}
           {!showOnlyPlatformTab && (
@@ -2550,12 +2554,6 @@ function AppHeader({ settings, syncStatus, activeTab, onSelectTab, cicloView, on
 /* ================================================================
    APP RAIZ
    ================================================================ */
-const CICLOS_DISPONIVEIS = [
-  { id: "1", label: "1º" },
-  { id: "2", label: "2º" },
-  { id: "3", label: "3º" },
-  { id: "4", label: "4º" },
-];
 
 /* ================================================================
    LOGIN / CADASTRO — tela exibida antes de qualquer dado carregar.
@@ -2704,25 +2702,74 @@ function App({ session, onUpdateCompany, onLogout }){
   const [cronograma, persistCronograma, statusCronograma] = useCloudCollection("g5s:cronograma", EMPTY_CRONOGRAMA);
   const [settingsRaw, persistSettingsRaw, statusSettings] = useCloudCollection("g5s:settings", EMPTY_SETTINGS);
 
-  // Ciclo sendo visualizado no momento (1º a 4º). Começa no 4º (o ciclo
-  // corrente), mas pode ser trocado no cabeçalho para navegar o histórico.
-  const [cicloView, setCicloView] = useState("4");
+  // Ciclo sendo visualizado no momento. Começa indefinido e é resolvido
+  // assim que as configurações carregam (ver efeito abaixo) — cada empresa
+  // pode ter uma quantidade diferente de ciclos (uma nova sempre começa só
+  // com o 1º; vão sendo adicionados um de cada vez pelo botão "+").
+  const [cicloView, setCicloView] = useState(null);
 
   // "areas" e "settings" abaixo são "fatias" derivadas do ciclo em
   // visualização — todo o resto do app (Painel, Área, Configurações etc.)
   // continua enxergando as mesmas formas de sempre (array de áreas com
   // itens/auditorias, e settings.cycleLabel/cyclePeriod/rounds), sem
-  // precisar saber que agora existem 4 ciclos por trás.
+  // precisar saber quantos ciclos existem por trás.
   const areas = areasByCycle ? (normalizeAreasByCycle(areasByCycle)[cicloView] || []) : null;
   const settings = settingsRaw ? (() => {
     const norm = normalizeSettingsRaw(settingsRaw);
+    const ativo = norm.ciclos[cicloView] || norm.ciclos[norm.cicloAtual] || Object.values(norm.ciclos)[0] || { label:"", period:"", rounds:[] };
     return {
       ...norm,
-      cycleLabel: norm.ciclos[cicloView].label,
-      cyclePeriod: norm.ciclos[cicloView].period,
-      rounds: norm.ciclos[cicloView].rounds,
+      cycleLabel: ativo.label,
+      cyclePeriod: ativo.period,
+      rounds: ativo.rounds,
     };
   })() : null;
+
+  // Lista de ciclos que realmente existem nesta empresa (1 pra uma empresa
+  // nova, podendo crescer conforme o botão "+" é usado), na ordem certa.
+  const ciclosDisponiveis = settingsRaw
+    ? Object.keys(normalizeSettingsRaw(settingsRaw).ciclos)
+        .sort((a, b) => Number(a) - Number(b))
+        .map(id => ({ id, label: id + "º" }))
+    : [];
+
+  // Assim que as configurações carregam (ou se o ciclo em vista deixar de
+  // existir, por qualquer motivo), acerta cicloView para um ciclo válido.
+  useEffect(() => {
+    if (!settingsRaw) return;
+    const norm = normalizeSettingsRaw(settingsRaw);
+    if (!norm.ciclos[cicloView]){
+      setCicloView(norm.ciclos[norm.cicloAtual] ? norm.cicloAtual : Object.keys(norm.ciclos)[0]);
+    }
+  }, [settingsRaw, cicloView]);
+
+  function addNewCycle(){
+    const norm = normalizeSettingsRaw(settingsRaw);
+    const ids = Object.keys(norm.ciclos).map(Number);
+    const nextId = String(Math.max(...ids) + 1);
+    const lastId = String(Math.max(...ids));
+
+    persistSettingsRaw(prev => {
+      const prevNorm = normalizeSettingsRaw(prev);
+      return {
+        ...prevNorm,
+        cicloAtual: nextId,
+        ciclos: { ...prevNorm.ciclos, [nextId]: { label: `${nextId}º Ciclo`, period: "", rounds: [] } },
+      };
+    });
+    persistAreasByCycle(prev => {
+      const prevNorm = normalizeAreasByCycle(prev) || {};
+      // O novo ciclo herda a mesma lista de áreas (nome/departamento/líder),
+      // mas com PAD e notas zerados — pronto pra preencher do zero.
+      const baseAreas = (prevNorm[lastId] || []).map(a => ({
+        id: a.id, nome: a.nome, departamento: a.departamento, lider: a.lider, auditor: a.auditor,
+        dataFoto: null, itens: [], auditorias: {},
+      }));
+      return { ...prevNorm, [nextId]: baseAreas };
+    });
+    setCicloView(nextId);
+    setToast(`${nextId}º Ciclo criado`);
+  }
 
   const persistAreas = useCallback((updater) => {
     persistAreasByCycle(prev => {
@@ -2862,7 +2909,7 @@ function App({ session, onUpdateCompany, onLogout }){
     <div className="g5-root">
       <style>{STYLES}{STYLES_B}</style>
       <AppHeader settings={settings} syncStatus={overallStatus} activeTab={activeTab} onSelectTab={selectTab}
-        cicloView={cicloView} onChangeCiclo={setCicloView} ciclosDisponiveis={CICLOS_DISPONIVEIS}
+        cicloView={cicloView} onChangeCiclo={setCicloView} ciclosDisponiveis={ciclosDisponiveis} onAddCycle={addNewCycle}
         company={company} user={user} onLogout={onLogout} showOnlyPlatformTab={showOnlyPlatformTab}
         impersonating={session.impersonating} onExitSupport={exitSupportMode} />
       <main className="g5-main">
