@@ -147,7 +147,7 @@ app.post("/api/auth/login", async (req, res) => {
 
 app.get("/api/auth/me", requireAuth, async (req, res) => {
   try {
-    const userRes = await pool.query(`SELECT id, name, email, role, is_owner FROM users WHERE id = $1`, [req.auth.userId]);
+    const userRes = await pool.query(`SELECT id, name, email, role, is_owner, is_support FROM users WHERE id = $1`, [req.auth.userId]);
     const userRow = userRes.rows[0];
     if (!userRow) return res.status(404).json({ error: "not_found" });
     const company = await companyPublicView(req.auth.companyId);
@@ -155,7 +155,7 @@ app.get("/api/auth/me", requireAuth, async (req, res) => {
     // visitada, independente do papel real do dono na própria empresa dele.
     const role = req.auth.impersonating ? "admin" : userRow.role;
     res.json({
-      user: { id: userRow.id, name: userRow.name, email: userRow.email, role, isOwner: userRow.is_owner },
+      user: { id: userRow.id, name: userRow.name, email: userRow.email, role, isOwner: userRow.is_owner, isSupport: userRow.is_support },
       company,
       impersonating: !!req.auth.impersonating,
     });
@@ -174,11 +174,11 @@ app.get("/api/auth/me", requireAuth, async (req, res) => {
 app.get("/api/platform/companies", requireAuth, async (req, res) => {
   try {
     // Verifica direto no banco (não confia só no token) se este usuário é
-    // dono da plataforma — assim uma promoção/remoção de acesso feita no
+    // dono OU da equipe de suporte — assim uma promoção/remoção feita no
     // banco vale na hora, mesmo que o token já emitido ainda não tenha sido
     // renovado.
-    const ownerCheck = await pool.query(`SELECT is_owner FROM users WHERE id = $1`, [req.auth.userId]);
-    if (!ownerCheck.rows[0] || !ownerCheck.rows[0].is_owner) {
+    const check = await pool.query(`SELECT is_owner, is_support FROM users WHERE id = $1`, [req.auth.userId]);
+    if (!check.rows[0] || (!check.rows[0].is_owner && !check.rows[0].is_support)) {
       return res.status(403).json({ error: "forbidden" });
     }
     const result = await pool.query(`
@@ -188,7 +188,7 @@ app.get("/api/platform/companies", requireAuth, async (req, res) => {
       FROM companies c
       ORDER BY c.created_at ASC
     `);
-    res.json({ companies: result.rows });
+    res.json({ companies: result.rows, isOwner: check.rows[0].is_owner });
   } catch (e) {
     console.error("GET /api/platform/companies failed:", e);
     res.status(500).json({ error: "server_error" });
@@ -309,15 +309,67 @@ app.delete("/api/platform/owners/:userId", requireAuth, async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------
+// Equipe de suporte — funcionários que conseguem entrar em modo suporte
+// em qualquer empresa (ajudar/orientar/ajustar), mas SEM os poderes
+// exclusivos do dono (criar/excluir empresa, conceder acesso de dono).
+// Só o dono pode conceder ou remover esse acesso.
+// ---------------------------------------------------------------
+app.get("/api/platform/support", requireAuth, async (req, res) => {
+  try {
+    if (!(await assertOwner(req, res))) return;
+    const result = await pool.query(`
+      SELECT u.id, u.name, u.email, c.name AS company_name
+      FROM users u JOIN companies c ON c.id = u.company_id
+      WHERE u.is_support = true
+      ORDER BY u.created_at ASC
+    `);
+    res.json({ support: result.rows });
+  } catch (e) {
+    console.error("GET /api/platform/support failed:", e);
+    res.status(500).json({ error: "server_error" });
+  }
+});
+
+app.post("/api/platform/support", requireAuth, async (req, res) => {
+  try {
+    if (!(await assertOwner(req, res))) return;
+    const { email } = req.body || {};
+    if (!email || !String(email).trim()) {
+      return res.status(400).json({ error: "missing_fields" });
+    }
+    const target = await pool.query(`SELECT id FROM users WHERE email = $1`, [String(email).toLowerCase().trim()]);
+    if (target.rows.length === 0) {
+      return res.status(404).json({ error: "user_not_found" });
+    }
+    await pool.query(`UPDATE users SET is_support = true WHERE id = $1`, [target.rows[0].id]);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("POST /api/platform/support failed:", e);
+    res.status(500).json({ error: "server_error" });
+  }
+});
+
+app.delete("/api/platform/support/:userId", requireAuth, async (req, res) => {
+  try {
+    if (!(await assertOwner(req, res))) return;
+    await pool.query(`UPDATE users SET is_support = false WHERE id = $1`, [req.params.userId]);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("DELETE /api/platform/support/:userId failed:", e);
+    res.status(500).json({ error: "server_error" });
+  }
+});
+
 // Modo suporte: emite um token temporário (2h) com acesso de admin à
 // empresa escolhida, pro dono da plataforma poder ajudar um cliente. Fica
 // registrado em support_access_log — não é mostrado à empresa, mas existe
 // pra auditoria caso precise justificar um acesso.
 app.post("/api/platform/companies/:id/impersonate", requireAuth, async (req, res) => {
   try {
-    const ownerRes = await pool.query(`SELECT id, company_id, is_owner FROM users WHERE id = $1`, [req.auth.userId]);
-    const ownerRow = ownerRes.rows[0];
-    if (!ownerRow || !ownerRow.is_owner) {
+    const actorRes = await pool.query(`SELECT id, company_id, is_owner, is_support FROM users WHERE id = $1`, [req.auth.userId]);
+    const actorRow = actorRes.rows[0];
+    if (!actorRow || (!actorRow.is_owner && !actorRow.is_support)) {
       return res.status(403).json({ error: "forbidden" });
     }
     const companyId = Number(req.params.id);
@@ -328,11 +380,11 @@ app.post("/api/platform/companies/:id/impersonate", requireAuth, async (req, res
 
     await pool.query(
       `INSERT INTO support_access_log (owner_user_id, company_id) VALUES ($1, $2)`,
-      [ownerRow.id, companyId]
+      [actorRow.id, companyId]
     );
 
     const token = signToken(
-      { id: ownerRow.id, company_id: companyId, role: "admin", is_owner: true },
+      { id: actorRow.id, company_id: companyId, role: "admin", is_owner: actorRow.is_owner, is_support: actorRow.is_support },
       { impersonating: true }
     );
     res.json({ token, company: await companyPublicView(companyId) });

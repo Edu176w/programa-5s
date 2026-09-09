@@ -26,7 +26,7 @@ export async function verifyPassword(plain, hash) {
 export function signToken(user, options) {
   options = options || {};
   return jwt.sign(
-    { userId: user.id, companyId: user.company_id, role: user.role, isOwner: !!user.is_owner, impersonating: !!options.impersonating },
+    { userId: user.id, companyId: user.company_id, role: user.role, isOwner: !!user.is_owner, isSupport: !!user.is_support, impersonating: !!options.impersonating },
     JWT_SECRET,
     { expiresIn: options.impersonating ? IMPERSONATION_TOKEN_TTL : TOKEN_TTL }
   );
@@ -34,7 +34,7 @@ export function signToken(user, options) {
 
 /**
  * Middleware: exige um token válido no header "Authorization: Bearer <token>".
- * Em caso de sucesso, popula req.auth = { userId, companyId, role, isOwner, impersonating }.
+ * Em caso de sucesso, popula req.auth = { userId, companyId, role, isOwner, isSupport, impersonating }.
  * Toda rota de dados (storage) deve usar isso — é o que garante que uma
  * empresa nunca consiga ler/gravar dado de outra.
  */
@@ -48,7 +48,7 @@ export function requireAuth(req, res, next) {
     const payload = jwt.verify(token, JWT_SECRET);
     req.auth = {
       userId: payload.userId, companyId: payload.companyId, role: payload.role,
-      isOwner: !!payload.isOwner, impersonating: !!payload.impersonating,
+      isOwner: !!payload.isOwner, isSupport: !!payload.isSupport, impersonating: !!payload.impersonating,
     };
     next();
   } catch (e) {

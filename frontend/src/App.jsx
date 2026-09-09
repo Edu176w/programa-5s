@@ -2194,7 +2194,7 @@ const TABS = [
    cadastradas (nome, quantos usuários, quando entrou, última
    atividade). Nunca mostra dados operacionais de nenhuma empresa.
    ================================================================ */
-function PlatformView({ ownCompanyId, currentUserId, onEnterCompany, onEnterSupport }){
+function PlatformView({ ownCompanyId, currentUserId, isFullOwner, onEnterCompany, onEnterSupport }){
   const [companies, setCompanies] = useState(null);
   const [error, setError] = useState("");
   const [supportTarget, setSupportTarget] = useState(null);
@@ -2216,6 +2216,13 @@ function PlatformView({ ownCompanyId, currentUserId, onEnterCompany, onEnterSupp
   const [deletingBusy, setDeletingBusy] = useState(false);
   const [deleteError, setDeleteError] = useState("");
 
+  const [supportTeam, setSupportTeam] = useState(null);
+  const [supportTeamError, setSupportTeamError] = useState("");
+  const [newSupportEmail, setNewSupportEmail] = useState("");
+  const [grantSupportError, setGrantSupportError] = useState("");
+  const [grantingSupport, setGrantingSupport] = useState(false);
+  const [revokingSupport, setRevokingSupport] = useState(null);
+
   function loadCompanies(){
     return apiFetch("/api/platform/companies")
       .then(async (res) => {
@@ -2234,8 +2241,20 @@ function PlatformView({ ownCompanyId, currentUserId, onEnterCompany, onEnterSupp
       })
       .catch(() => setOwnersError("Não foi possível carregar os donos da plataforma."));
   }
+  function loadSupportTeam(){
+    return apiFetch("/api/platform/support")
+      .then(async (res) => {
+        if (!res.ok) throw new Error("falhou");
+        const json = await res.json();
+        setSupportTeam(json.support);
+      })
+      .catch(() => setSupportTeamError("Não foi possível carregar a equipe de suporte."));
+  }
 
-  useEffect(() => { loadCompanies(); loadOwners(); }, []);
+  useEffect(() => {
+    loadCompanies();
+    if (isFullOwner){ loadOwners(); loadSupportTeam(); }
+  }, [isFullOwner]);
 
   async function createCompany(e){
     e.preventDefault();
@@ -2289,6 +2308,36 @@ function PlatformView({ ownCompanyId, currentUserId, onEnterCompany, onEnterSupp
     await loadOwners();
   }
 
+  async function grantSupport(e){
+    e.preventDefault();
+    if (!newSupportEmail.trim()) return;
+    setGrantingSupport(true); setGrantSupportError("");
+    try {
+      const res = await apiFetch("/api/platform/support", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: newSupportEmail.trim() }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setGrantSupportError(json.error === "user_not_found"
+          ? "Essa pessoa ainda não tem conta em nenhuma empresa — ela precisa criar a conta dela primeiro (com o convite de alguma empresa), aí sim você pode dar acesso de suporte."
+          : "Não foi possível conceder acesso de suporte.");
+        return;
+      }
+      setNewSupportEmail("");
+      await loadSupportTeam();
+    } finally {
+      setGrantingSupport(false);
+    }
+  }
+
+  async function revokeSupport(userId){
+    setRevokingSupport(null);
+    await apiFetch(`/api/platform/support/${userId}`, { method: "DELETE" });
+    await loadSupportTeam();
+  }
+
   async function confirmDeleteCompany(){
     setDeletingBusy(true); setDeleteError("");
     try {
@@ -2331,11 +2380,11 @@ function PlatformView({ ownCompanyId, currentUserId, onEnterCompany, onEnterSupp
 
   return (
     <div>
-      <SectionHeading eyebrow="Dono da plataforma" title="Empresas cadastradas"
+      <SectionHeading eyebrow={isFullOwner ? "Dono da plataforma" : "Equipe de suporte"} title="Empresas cadastradas"
         desc="Todas as empresas que usam esta instalação — só você enxerga esta tela. Clique numa empresa sua para entrar nos dados dela."
-        right={<button className="g5-btn g5-btn-primary" onClick={()=>{ setShowForm(s=>!s); setJustCreated(null); }}><Plus size={15}/> Nova Empresa</button>} />
+        right={isFullOwner ? <button className="g5-btn g5-btn-primary" onClick={()=>{ setShowForm(s=>!s); setJustCreated(null); }}><Plus size={15}/> Nova Empresa</button> : null} />
 
-      {showForm && (
+      {isFullOwner && showForm && (
         <form onSubmit={createCompany} className="g5-platform-newco">
           <div className="g5-field" style={{ flex:1, marginBottom:0 }}>
             <label className="g5-label">Nome da nova empresa</label>
@@ -2385,7 +2434,7 @@ function PlatformView({ ownCompanyId, currentUserId, onEnterCompany, onEnterSupp
                   <td>{fmtDate(c.last_activity_at)}</td>
                   <td><code className="g5-invite-code" style={{ fontSize:12.5, padding:"3px 8px" }}>{c.invite_code}</code></td>
                   <td style={{ textAlign:"right" }}>
-                    {c.id !== ownCompanyId && (
+                    {isFullOwner && c.id !== ownCompanyId && (
                       <button className="g5-btn g5-btn-ghost g5-btn-icon" title="Excluir empresa"
                         onClick={(e)=>{ e.stopPropagation(); setDeleting(c); setDeleteConfirmText(""); setDeleteError(""); }}>
                         <Trash2 size={13}/>
@@ -2400,48 +2449,98 @@ function PlatformView({ ownCompanyId, currentUserId, onEnterCompany, onEnterSupp
         </div>
       )}
 
-      <div style={{ marginTop:32 }}>
-        <SectionHeading eyebrow="Acesso sensível" title="Donos da Plataforma"
-          desc="Quem tem essa marcação enxerga esta tela e todas as empresas cadastradas — não afeta o acesso de ninguém à própria empresa." />
+      {isFullOwner && (
+        <div style={{ marginTop:32 }}>
+          <SectionHeading eyebrow="Acesso sensível" title="Donos da Plataforma"
+            desc="Quem tem essa marcação enxerga esta tela e todas as empresas cadastradas, além de poder criar/excluir empresas e conceder este mesmo acesso a outras pessoas." />
 
-        <form onSubmit={grantOwner} className="g5-platform-newco">
-          <div className="g5-field" style={{ flex:1, marginBottom:0 }}>
-            <label className="g5-label">Tornar dono da plataforma (e-mail de uma conta já existente)</label>
-            <input className="g5-input" type="email" value={newOwnerEmail} onChange={e=>setNewOwnerEmail(e.target.value)} placeholder="pessoa@empresa.com" required />
-          </div>
-          <button className="g5-btn g5-btn-primary" type="submit" disabled={granting}>{granting ? "Aguarde…" : "Conceder acesso"}</button>
-        </form>
-        {grantError && <p className="g5-login-error">{grantError}</p>}
+          <form onSubmit={grantOwner} className="g5-platform-newco">
+            <div className="g5-field" style={{ flex:1, marginBottom:0 }}>
+              <label className="g5-label">Tornar dono da plataforma (e-mail de uma conta já existente)</label>
+              <input className="g5-input" type="email" value={newOwnerEmail} onChange={e=>setNewOwnerEmail(e.target.value)} placeholder="pessoa@empresa.com" required />
+            </div>
+            <button className="g5-btn g5-btn-primary" type="submit" disabled={granting}>{granting ? "Aguarde…" : "Conceder acesso"}</button>
+          </form>
+          {grantError && <p className="g5-login-error">{grantError}</p>}
 
-        {ownersError && <p className="g5-login-error">{ownersError}</p>}
-        {!owners && !ownersError && <p className="g5-help">Carregando…</p>}
-        {owners && (
-          <div className="g5-table-wrap">
-            <table className="g5-table">
-              <thead>
-                <tr>
-                  <th>Nome</th>
-                  <th>E-mail</th>
-                  <th>Empresa</th>
-                  <th className="no-sort"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {owners.map(o => (
-                  <tr key={o.id}>
-                    <td>{o.name}{o.id === currentUserId && <span className="g5-historico-badge" style={{ marginLeft:8 }}>Você</span>}</td>
-                    <td>{o.email}</td>
-                    <td>{o.company_name}</td>
-                    <td style={{ textAlign:"right" }}>
-                      <button className="g5-btn g5-btn-ghost g5-btn-icon" title="Remover acesso de dono" onClick={()=>setRevoking(o)}><Trash2 size={13}/></button>
-                    </td>
+          {ownersError && <p className="g5-login-error">{ownersError}</p>}
+          {!owners && !ownersError && <p className="g5-help">Carregando…</p>}
+          {owners && (
+            <div className="g5-table-wrap">
+              <table className="g5-table">
+                <thead>
+                  <tr>
+                    <th>Nome</th>
+                    <th>E-mail</th>
+                    <th>Empresa</th>
+                    <th className="no-sort"></th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+                </thead>
+                <tbody>
+                  {owners.map(o => (
+                    <tr key={o.id}>
+                      <td>{o.name}{o.id === currentUserId && <span className="g5-historico-badge" style={{ marginLeft:8 }}>Você</span>}</td>
+                      <td>{o.email}</td>
+                      <td>{o.company_name}</td>
+                      <td style={{ textAlign:"right" }}>
+                        <button className="g5-btn g5-btn-ghost g5-btn-icon" title="Remover acesso de dono" onClick={()=>setRevoking(o)}><Trash2 size={13}/></button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {isFullOwner && (
+        <div style={{ marginTop:32 }}>
+          <SectionHeading eyebrow="Acesso sensível" title="Equipe de Suporte"
+            desc="Quem tem essa marcação consegue entrar em modo suporte em qualquer empresa (ajudar, orientar, ajustar), mas não pode criar/excluir empresas nem conceder acesso de dono." />
+
+          <form onSubmit={grantSupport} className="g5-platform-newco">
+            <div className="g5-field" style={{ flex:1, marginBottom:0 }}>
+              <label className="g5-label">Adicionar à equipe de suporte (e-mail de uma conta já existente)</label>
+              <input className="g5-input" type="email" value={newSupportEmail} onChange={e=>setNewSupportEmail(e.target.value)} placeholder="pessoa@empresa.com" required />
+            </div>
+            <button className="g5-btn g5-btn-primary" type="submit" disabled={grantingSupport}>{grantingSupport ? "Aguarde…" : "Conceder acesso"}</button>
+          </form>
+          {grantSupportError && <p className="g5-login-error">{grantSupportError}</p>}
+
+          {supportTeamError && <p className="g5-login-error">{supportTeamError}</p>}
+          {!supportTeam && !supportTeamError && <p className="g5-help">Carregando…</p>}
+          {supportTeam && (
+            <div className="g5-table-wrap">
+              <table className="g5-table">
+                <thead>
+                  <tr>
+                    <th>Nome</th>
+                    <th>E-mail</th>
+                    <th>Empresa</th>
+                    <th className="no-sort"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {supportTeam.map(s => (
+                    <tr key={s.id}>
+                      <td>{s.name}{s.id === currentUserId && <span className="g5-historico-badge" style={{ marginLeft:8 }}>Você</span>}</td>
+                      <td>{s.email}</td>
+                      <td>{s.company_name}</td>
+                      <td style={{ textAlign:"right" }}>
+                        <button className="g5-btn g5-btn-ghost g5-btn-icon" title="Remover acesso de suporte" onClick={()=>setRevokingSupport(s)}><Trash2 size={13}/></button>
+                      </td>
+                    </tr>
+                  ))}
+                  {supportTeam.length === 0 && (
+                    <tr><td colSpan={4} className="g5-help" style={{ padding:14 }}>Nenhuma pessoa na equipe de suporte ainda.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {revoking && (
         <ConfirmDialog
@@ -2453,6 +2552,16 @@ function PlatformView({ ownCompanyId, currentUserId, onEnterCompany, onEnterSupp
           danger
           onCancel={()=>setRevoking(null)}
           onConfirm={()=>revokeOwner(revoking.id)}
+        />
+      )}
+      {revokingSupport && (
+        <ConfirmDialog
+          title="Remover acesso de suporte?"
+          message={`${revokingSupport.name} não vai mais conseguir entrar em modo suporte em nenhuma empresa, mas continuará normalmente na conta dela.`}
+          confirmLabel="Remover acesso"
+          danger
+          onCancel={()=>setRevokingSupport(null)}
+          onConfirm={()=>revokeSupport(revokingSupport.id)}
         />
       )}
       {supportTarget && (
@@ -2539,6 +2648,12 @@ function PainelGeralView({ areasByCycleNorm, settingsNorm, ciclosDisponiveis }){
     return row;
   });
 
+  // Média geral de cada departamento, considerando todos os ciclos juntos.
+  const departmentOverallData = departments.map(d => {
+    const vals = perCycle.map(c => c.porDepartamento[d]).filter(v=>v!=null);
+    return { departamento: d, media: vals.length ? round1(average(vals)) : 0, cor: deptMeta(d).color };
+  });
+
   return (
     <div>
       <SectionHeading eyebrow="Panorama" title="Painel Geral"
@@ -2586,6 +2701,24 @@ function PainelGeralView({ areasByCycleNorm, settingsNorm, ciclosDisponiveis }){
                   {departments.map(d => (
                     <Bar key={d} dataKey={d} name={d} fill={deptMeta(d).color} radius={[4,4,0,0]} />
                   ))}
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className="g5-chart-card" style={{ marginTop:20 }}>
+            <div className="g5-chart-title">Média Geral por Departamento</div>
+            <div className="g5-chart-sub">Considerando todos os ciclos juntos</div>
+            <div style={{ width:"100%", height:230 }}>
+              <ResponsiveContainer>
+                <BarChart data={departmentOverallData} margin={{ top:6, right:10, left:-18, bottom:0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" vertical={false} />
+                  <XAxis dataKey="departamento" tick={{ fontSize:11.5, fill:"var(--ink-soft)" }} axisLine={{ stroke:"var(--line)" }} tickLine={false} />
+                  <YAxis domain={[0,100]} tick={{ fontSize:11, fill:"var(--ink-soft)" }} axisLine={false} tickLine={false} />
+                  <RTooltip formatter={(v)=>[v,"Média"]} contentStyle={{ fontSize:12.5, borderRadius:8, border:"1px solid var(--line)" }} />
+                  <Bar dataKey="media" radius={[5,5,0,0]}>
+                    {departmentOverallData.map((d,i)=>(<Cell key={i} fill={d.cor} />))}
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -2709,7 +2842,7 @@ function AppHeader({ settings, syncStatus, activeTab, onSelectTab, cicloView, on
             </button>
           ) : (
             <>
-              {user && user.isOwner && (
+              {user && (user.isOwner || user.isSupport) && (
                 <button className={classNames("g5-tab", activeTab==="platform" && "active")} onClick={()=>onSelectTab("platform")}>
                   <ArrowLeft size={15} strokeWidth={2.2}/> Plataforma
                 </button>
@@ -3011,12 +3144,13 @@ function App({ session, onUpdateCompany, onLogout }){
     });
   }, [persistSettingsRaw, cicloView]);
 
-  const [activeTab, setActiveTab] = useState(() => (user && user.isOwner && !session.impersonating) ? "platform" : "dashboard");
+  const hasPlatformAccess = !!(user && (user.isOwner || user.isSupport));
+  const [activeTab, setActiveTab] = useState(() => (hasPlatformAccess && !session.impersonating) ? "platform" : "dashboard");
   const [ownerEnteredCompany, setOwnerEnteredCompany] = useState(() => !!session.impersonating);
   const [selectedAreaId, setSelectedAreaId] = useState(null);
   const [toast, setToast] = useState(null);
 
-  const showOnlyPlatformTab = !!(user && user.isOwner && !ownerEnteredCompany);
+  const showOnlyPlatformTab = !!(hasPlatformAccess && !ownerEnteredCompany);
 
   function enterOwnCompany(){
     setOwnerEnteredCompany(true);
@@ -3153,8 +3287,8 @@ function App({ session, onUpdateCompany, onLogout }){
             company={company} user={user} onUpdateCompany={onUpdateCompany} onLogout={onLogout}
             cicloView={cicloView} ciclosDisponiveis={ciclosDisponiveis} onDeleteCycle={deleteCycle} />
         )}
-        {activeTab === "platform" && user && user.isOwner && (
-          <PlatformView ownCompanyId={company.id} currentUserId={user.id} onEnterCompany={enterOwnCompany} onEnterSupport={enterSupportMode} />
+        {activeTab === "platform" && hasPlatformAccess && (
+          <PlatformView ownCompanyId={company.id} currentUserId={user.id} isFullOwner={user.isOwner} onEnterCompany={enterOwnCompany} onEnterSupport={enterSupportMode} />
         )}
       </main>
       {toast && <Toast message={toast} onDone={()=>setToast(null)} />}

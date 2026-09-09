@@ -65,6 +65,7 @@ export async function initDb() {
       name TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'member',
       is_owner BOOLEAN NOT NULL DEFAULT false,
+      is_support BOOLEAN NOT NULL DEFAULT false,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
   `);
@@ -76,6 +77,16 @@ export async function initDb() {
   `);
   if (ownerCol.rows.length === 0) {
     await pool.query(`ALTER TABLE users ADD COLUMN is_owner BOOLEAN NOT NULL DEFAULT false;`);
+  }
+  // Migração: "is_support" — funcionário de suporte, que consegue entrar em
+  // modo suporte em qualquer empresa (ajudar/ajustar), mas sem os poderes
+  // exclusivos do dono (criar/excluir empresa, conceder acesso de dono).
+  const supportCol = await pool.query(`
+    SELECT column_name FROM information_schema.columns
+    WHERE table_name = 'users' AND column_name = 'is_support'
+  `);
+  if (supportCol.rows.length === 0) {
+    await pool.query(`ALTER TABLE users ADD COLUMN is_support BOOLEAN NOT NULL DEFAULT false;`);
   }
 
   await pool.query(`
